@@ -34,7 +34,7 @@
 
 <main class="wrap">
   <section class="card results" id="results" hidden>
-    <div class="reshead"><h2 id="resTitle">Search results</h2><button type="button" id="resCsv">Download results</button><button type="button" id="resClear">Clear</button></div>
+    <div class="reshead"><h2 id="resTitle">Search Results</h2><button type="button" id="resCsv">Download results</button><button type="button" id="resClear">Clear</button></div>
     <div class="tablewrap tall"><table class="data sortable" id="resTable"></table></div>
     <p class="muted small" id="resNote"></p>
   </section>
@@ -43,20 +43,20 @@
   <div id="viewRegion">
     <section class="kpis" id="rKpis"></section>
     <section class="card">
-      <div class="head"><h2>The region</h2><p id="rIntro"></p></div>
+      <div class="head"><h2>The Region</h2><p id="rIntro"></p></div>
       <div class="grid2">
         <div><div id="rMap" class="map tallmap" role="img" aria-label="Map of counties in the radius"></div>
           <div class="legend"><span><i class="sq has"></i>Parcel data on file</span><span><i class="sq info"></i>Links and schedule only</span><span><i class="ring"></i>52-mile radius</span></div></div>
-        <div><h3>Upcoming sales on file</h3><div class="tablewrap"><table class="data" id="rUpcoming"></table></div>
-          <h3 class="mt">Where the data is richest</h3><div class="chart short"><canvas id="rRich"></canvas></div></div>
+        <div><h3>Upcoming Auctions On File</h3><div class="tablewrap"><table class="data" id="rUpcoming"></table></div>
+          <h3 class="mt">Where The Data Is Richest</h3><div class="chart short"><canvas id="rRich"></canvas></div></div>
       </div>
     </section>
     <section class="card">
-      <div class="head"><h2>All counties</h2><p>Click a county to open its tab. "Prices" counts parcels with a published winning bid. Counties without parcel data still have their schedule and official links.</p></div>
+      <div class="head"><h2>All Counties</h2><p>Click a county to open its tab. "Prices" counts parcels with a published winning bid. Counties without parcel data still have their schedule and official links.</p></div>
       <div class="tablewrap tall"><table class="data sortable" id="rTable"></table></div>
     </section>
     <section class="card">
-      <div class="head"><h2>Prices across counties</h2><p>Winning bids from every published result or excess funds list, by county.</p></div>
+      <div class="head"><h2>Prices Across Counties</h2><p>Winning bids from every published result or excess funds list, by county.</p></div>
       <div class="grid2">
         <div class="chart"><canvas id="rPrices"></canvas></div>
         <div class="tablewrap"><table class="data" id="rPriceTable"></table></div>
@@ -79,17 +79,17 @@
     <div id="cBody">
       <section class="kpis" id="cKpis"></section>
       <section class="card" id="secTiers">
-        <div class="head"><h2>Cost tiers</h2><p>Parcels grouped by amount owed (the opening bid). Where winning bids are published, the average winning bid per tier is shown too.</p></div>
+        <div class="head"><h2>Cost Tiers</h2><p>Parcels grouped by amount owed (the opening bid). Where winning bids are published, the average winning bid per tier is shown too.</p></div>
         <div class="grid2"><div class="chart"><canvas id="cTiers"></canvas></div><div class="tablewrap"><table class="data" id="tTiers"></table></div></div>
         <p class="takeaway" id="kTiers"></p>
       </section>
       <section class="card" id="secHistory">
-        <div class="head"><h2>Auction history</h2><p>Every sale on file for this county. Bars show parcels per sale; the line shows the average winning bid where it was published.</p></div>
+        <div class="head"><h2>Auction History</h2><p>Every sale on file for this county. Bars show parcels per sale; the line shows the average winning bid where it was published.</p></div>
         <div class="grid2"><div class="chart"><canvas id="cHist"></canvas></div><div class="tablewrap tall"><table class="data sortable" id="tHist"></table></div></div>
       </section>
       <section class="card" id="secBids">
         <div class="head"><h2>Bidding</h2><p>How far above the amount owed parcels sold. A multiple of 1.0x means it sold for exactly what was owed.</p></div>
-        <div class="grid2"><div class="chart short"><canvas id="cMult"></canvas></div><div><div class="warstats" id="cWar"></div><h3 class="mt" id="buyersTitle">Most active buyers</h3><div class="tablewrap"><table class="data" id="tBuyers"></table></div></div></div>
+        <div class="grid2"><div class="chart short"><canvas id="cMult"></canvas></div><div><div class="warstats" id="cWar"></div><h3 class="mt" id="buyersTitle">Most Active Buyers</h3><div class="tablewrap"><table class="data" id="tBuyers"></table></div></div></div>
       </section>
       <section class="card" id="secMap">
         <div class="head"><h2>Location</h2><p>Parcels with a street address the Census geocoder could place inside the county. Dot size follows the winning bid or the amount owed.</p></div>
@@ -97,7 +97,8 @@
         <p class="muted small" id="mapNote"></p>
       </section>
       <section class="card" id="parcels">
-        <div class="head"><h2>All parcels</h2><p>Every parcel in the auction picked above. Click a column header to sort, use <b>Columns</b> to show, hide or pivot columns, and <b>Pivot by</b> to summarize. Click a row for details.</p></div>
+        <div class="head"><h2>All Parcels</h2><p>Every parcel in the auction picked above. Click a column header to sort, use <b>Columns</b> to show, hide or pivot columns, and <b>Pivot by</b> to summarize. Click a row for details. <b>Parcel Info</b> opens the county assessor's record for that parcel (documented owner, value and sales history) and <b>Parcel Map</b> opens the county's parcel map on it. <b>Prior Auctions</b> counts earlier auctions on file for the same parcel, with the amount it sold for where the county published it.</p>
+          <p class="small muted"><b>Deal Score</b> (0 to 100) is a screening aid, not advice: value 40 (cost against county value, or entry cost when no value is published), property 20 (numbered street address scores highest), location 15 (distance from Atlanta), competition 15 (how far above the amount owed parcels sell), history 10 (earlier auctions for the same parcel). 70 and up Strong, 50 to 69 Good, 35 to 49 Fair, under 35 Weak.</p></div>
         <div class="filters gridbar">
           <input id="fSearch" type="search" placeholder="Search parcel, owner, address or buyer">
           <label class="inline">Pivot by <select id="pivotBy"></select></label>

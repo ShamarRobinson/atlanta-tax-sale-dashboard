@@ -78,6 +78,24 @@ def street_of(p):
     return a if re.match(r"^\d+[A-Z]?\s+\S+", a) and not a.startswith("0 ") else None
 
 
+HENRY = {"MCD": "McDonough", "LG": "Locust Grove", "STK": "Stockbridge", "HAM": "Hampton", "ELL": "Ellenwood", "REX": "Rex", "JNK": "Jenkinsburg", "FBN": "Fairburn"}
+
+
+FIX = {"Mcdonough": "McDonough", "Lagrange": "LaGrange", "Mcdonough ": "McDonough"}
+
+
+def area_of(p, g):
+    """City name: from the geocoder's matched address, else from a city written after the street address."""
+    if g and g.get("matched"):
+        parts = [x.strip() for x in g["matched"].split(",")]
+        if len(parts) >= 3 and parts[1]:
+            return FIX.get(parts[1].title(), parts[1].title())
+    parts = [x.strip() for x in (p.get("address") or "").split(",")]
+    if len(parts) >= 2 and re.match(r"^[A-Za-z .'-]{2,30}$", parts[1]) and parts[1].upper() != "GA":
+        return HENRY.get(parts[1].upper(), FIX.get(parts[1].title(), parts[1].title()))
+    return None
+
+
 def main(only=None):
     cache = json.loads(CACHE.read_text()) if CACHE.exists() else {}
     index = []
@@ -120,6 +138,9 @@ def main(only=None):
                 g = cache.get(f"{fips}|{st.upper()}") if st else None
                 if g:
                     p["lat"], p["lon"] = g["lat"], g["lon"]
+                ar = area_of(p, g)
+                if ar:
+                    p["area"] = ar
         rec = {k: v for k, v in c.items() if k != "fetch"}
         rec.update(slug=s, label=c.get("label", c["name"]), fips=fips, milesFromAtlanta=m.get("near"), pctInRadius=m.get("inside"),
                    automated=bool(c.get("fetch")), auctions=auctions, lastChecked=datetime.now(timezone.utc).isoformat(timespec="seconds"))

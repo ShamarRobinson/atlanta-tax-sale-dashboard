@@ -36,6 +36,8 @@
       }));
       C[d.slug] = d;
     });
+    linkPriors();
+    INDEX.counties.forEach((c) => { const m = med(ALL.filter((p) => p.slug === c.slug).map((p) => p.multiple)); if (m) CMULT[c.slug] = m; });
     const g = toDate(INDEX.generated);
     $("freshness").innerHTML = `<span class="dotlive"></span>Checked <b>${g.toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", timeZone: "America/New_York" })} ET</b> &middot; ${INDEX.counties.length} counties &middot; ${ALL.length.toLocaleString()} parcel records &middot; updates weekly`;
     buildTabs();
@@ -109,7 +111,7 @@
     }
     // upcoming
     const ups = cs.filter((c) => c.nextSale).sort((a, b) => a.nextSale.localeCompare(b.nextSale));
-    $("rUpcoming").innerHTML = `<thead><tr><th>Sale date</th><th>County</th><th class="num">Parcels listed</th></tr></thead><tbody>` +
+    $("rUpcoming").innerHTML = `<thead><tr><th>Auction Date</th><th>County</th><th class="num">Parcels listed</th></tr></thead><tbody>` +
       (ups.length ? ups.map((c) => { const a = C[c.slug].auctions.find((x) => x.date === c.nextSale); return `<tr data-s="${c.slug}"><td>${fmtDate(c.nextSale, { weekday: "short" })}</td><td><a href="#${c.slug}">${esc(c.label)}</a></td><td class="num">${a ? a.parcels.length : ""}</td></tr>`; }).join("")
         : `<tr><td colspan="3" class="muted">No upcoming lists posted right now.</td></tr>`) + "</tbody>";
     const rich = cs.filter((c) => c.parcels).sort((a, b) => b.parcels - a.parcels).slice(0, 14);
@@ -122,8 +124,8 @@
       ["Miles", (r) => r.c.milesFromAtlanta, (r) => r.c.milesFromAtlanta.toFixed(0), 1],
       ["In radius", (r) => r.c.pctInRadius, (r) => r.c.pctInRadius + "%", 1],
       ["Run by", (r) => r.c.run, (r) => esc(r.c.run)],
-      ["Next sale", (r) => r.c.nextSale || "", (r) => r.c.nextSale ? fmtDate(r.c.nextSale) : '<span class="muted">None posted</span>'],
-      ["Latest sale on file", (r) => r.c.lastSale || "", (r) => r.c.lastSale ? fmtDate(r.c.lastSale) : ""],
+      ["Next Auction Date", (r) => r.c.nextSale || "", (r) => r.c.nextSale ? fmtDate(r.c.nextSale) : '<span class="muted">None posted</span>'],
+      ["Latest Auction Date On File", (r) => r.c.lastSale || "", (r) => r.c.lastSale ? fmtDate(r.c.lastSale) : ""],
       ["Sales", (r) => r.c.auctions, (r) => r.c.auctions || "", 1],
       ["Parcels", (r) => r.c.parcels, (r) => r.c.parcels ? r.c.parcels.toLocaleString() : "", 1],
       ["Prices", (r) => r.c.withPrice, (r) => r.c.withPrice || "", 1],
@@ -234,7 +236,7 @@
     const ds = [Object.assign(bar("Parcels", rows.map((r) => r.n), cssVar("--s1")), { order: 2 })];
     if (rows.some((r) => r.won)) ds.push({ type: "line", label: "Avg winning bid", data: rows.map((r) => r.won ?? null), yAxisID: "y2", borderColor: cssVar("--s2"), backgroundColor: cssVar("--s2"), spanGaps: true, pointRadius: 3, order: 1 });
     chart("cHist", { type: "bar", data: { labels: rows.map((r) => fmtDate(r.a.date, { day: undefined })), datasets: ds }, options: o });
-    sortableTable("tHist", [["Sale", (r) => r.a.date, (r) => fmtDate(r.a.date)], ["Type", (r) => r.a.kind, (r) => `<span class="kind ${r.a.kind}" title="${KIND_HELP[r.a.kind]}">${KIND[r.a.kind]}</span>`],
+    sortableTable("tHist", [["Auction Date", (r) => r.a.date, (r) => fmtDate(r.a.date)], ["Type", (r) => r.a.kind, (r) => `<span class="kind ${r.a.kind}" title="${KIND_HELP[r.a.kind]}">${KIND[r.a.kind]}</span>`],
       ["Parcels", (r) => r.n, (r) => r.n, 1], ["Sold", (r) => r.sold, (r) => r.a.kind === "list" ? "" : r.sold, 1], ["Avg owed", (r) => r.owed || 0, (r) => money(r.owed), 1],
       ["Avg winning bid", (r) => r.won || 0, (r) => money(r.won), 1], ["Excess", (r) => r.ex, (r) => r.ex ? money(r.ex) : "", 1],
       ["Source", (r) => r.a.source, (r) => `<a href="${esc(r.a.source)}" target="_blank" rel="noopener">County file</a>`]], rows, 0, -1,
@@ -279,30 +281,112 @@
     $("mapNote").innerHTML = pts.length ? `${pts.length} of ${ps.length} parcels placed. Orange = sold above amount owed, blue = sold at amount owed, green = listed or outcome not published.` : `None of these parcels have a street address the geocoder could place, so only the county outline is shown.`;
   }
 
+
+  /* ---------- parcel links (county assessor record and parcel map) ---------- */
+  const QP = { fulton: [936, 18251, 8156, 8153], cobb: [1051, 23951, 9969, 9966], clayton: [1234, 39180, 14580, 14577], gwinnett: [1282, 43872, 16060, 16057], henry: [1035, 22139, 15803, 9365],
+    douglas: [988, 20162, 8762, 8759], rockdale: [694, 11394, 4834, null], fayette: [942, 18406, 8206, 8203], coweta: [704, 11412, 4878, null], walton: [628, 11921, 5798, null], forsyth: [1027, 21667, 9230, 9227],
+    carroll: [663, 15076, 6801, 0], clarke: [630, 11199, 4601, 0], dawson: [676, 11636, 5339, 0], floyd: [802, 13374, 6034, 0], heard: [701, 11409, 4864, 0], jackson: [797, 11838, 5759, 0], lumpkin: [991, 20168, 8782, 8779],
+    meriwether: [775, 11811, 5653, 0], pickens: [627, 11193, 4592, 0], polk: [690, 11379, 4806, 0], spalding: [766, 11802, 5608, 0], troup: [633, 18434, 8224, 0] };
+  const pad7 = (t) => t[0].padEnd(7) + t.slice(1).join(" ");
+  const KEY = {
+    fulton: (s) => { const d = s.replace(/[^0-9A-Z]/gi, ""); return d.length >= 12 ? d.slice(0, 2) + " " + d.slice(2) : null; },
+    cobb: (s) => { const d = s.replace(/[^0-9]/g, ""); return d.length === 11 ? d : null; },
+    walton: (s) => s.replace(/[-\s]/g, ""),
+    coweta: (s, t) => t.length === 3 ? t[0].padEnd(5) + t[1].padEnd(4) + " " + t[2] : t.length === 2 ? t[0].padEnd(5) + "     " + t[1] : null,
+    forsyth: (s, t) => t.length === 2 ? t[0].padEnd(6) + t[1] : null,
+    carroll: (s) => { const d = s.replace(/\s/g, ""); return d.length >= 5 && d.length <= 11 ? d.slice(0, 3) + d.slice(3).padStart(8) : null; },
+    clarke: (s, t) => t.length === 2 ? t[0].padEnd(5) + " " + (/^[A-Z]\d{3}/.test(t[1]) ? "" : " ") + t[1] : null,
+    dawson: (s, t) => /MH$/i.test(s) || t.length < 2 ? null : pad7(t),
+    heard: (s, t) => { const m = (t[0] || "").match(/^(\d{4})([A-Z]?)$/); return m && t[1] ? `${m[1]} ${m[2] || " "} ${t[1]}` : null; },
+    jackson: (s) => { const m = s.replace(/\s/g, "").match(/^(\d{3}[A-Z]?)(.+)$/); return m ? m[1].padEnd(7) + m[2] : null; },
+    lumpkin: (s) => { const t = s.split(/[-\s]+/); return t.length >= 2 ? pad7(t) : null; },
+    meriwether: (s, t) => t.length >= 2 ? pad7(t) : null, pickens: (s, t) => t.length >= 2 ? pad7(t) : null,
+    polk: (s, t) => t.join("-"),
+    troup: (s, t) => t.length === 3 ? t[0].padEnd(5) + t[1] + t[2] : null,
+  };
+  function parcelKey(p) { const s = String(p.parcel || "").trim().toUpperCase().replace(/\s+/g, " "); if (!s) return null; const f = KEY[p.slug]; return f ? f(s, s.split(" ")) : s; }
+  function parcelLinks(p) {
+    if (p._lk) return p._lk;
+    const k = parcelKey(p); let info = null, map = null;
+    if (k && p.slug === "dekalb") {
+      info = `https://propertyappraisal.dekalbcountyga.gov/Datalets/Datalet.aspx?UseSearch=no&pin=${encodeURIComponent(k)}`;
+      map = `https://propertyappraisal.dekalbcountyga.gov/maps/map.aspx?UseSearch=no&pin=${encodeURIComponent(k)}&jur=000`;
+    } else if (k && QP[p.slug]) {
+      const [a, l, r, m] = QP[p.slug], b = `https://qpublic.schneidercorp.com/Application.aspx?AppID=${a}&LayerID=${l}`;
+      info = `${b}&PageTypeID=4&PageID=${r}&KeyValue=${encodeURIComponent(k)}`;
+      map = `${b}&PageTypeID=1${m == null ? "" : "&PageID=" + m}&KeyValue=${encodeURIComponent(k)}`;
+    }
+    return (p._lk = { info, map });
+  }
+  const ext = (u, t) => u ? `<a href="${esc(u)}" target="_blank" rel="noopener">${t}</a>` : "";
+
+  /* ---------- prior auctions (same parcel, same county, earlier date) ---------- */
+  function linkPriors() {
+    const by = {};
+    ALL.forEach((p) => (by[p.slug + "|" + p.parcel.toUpperCase().replace(/\s+/g, " ")] = by[p.slug + "|" + p.parcel.toUpperCase().replace(/\s+/g, " ")] || []).push(p));
+    Object.values(by).forEach((g) => {
+      const dates = {}; // one entry per auction date, preferring the record that has a price
+      g.forEach((p) => { const d = dates[p.date]; if (!d || (!d.winningBid && p.winningBid) || (d.kind === "list" && p.kind !== "list")) dates[p.date] = p; });
+      const list = Object.values(dates).sort((a, b) => a.date.localeCompare(b.date));
+      g.forEach((p) => { p.priors = list.filter((x) => x.date < p.date); });
+    });
+  }
+  const priorSold = (p) => p.priors.filter((x) => x.winningBid > 0);
+
+  /* ---------- deal score (0 to 100) ---------- */
+  const CMULT = {};
+  function dealScore(p) {
+    if (p._ds) return p._ds;
+    const parts = [], cost = p.winningBid || p.minBid || null;
+    let v;
+    if (p.value > 0 && cost) { const r = cost / p.value; v = Math.round(40 * Math.max(0, Math.min(1, (0.6 - r) / 0.55))); parts.push(["Value", v, 40, `Cost is ${Math.round(r * 100)}% of the county value (${money(p.value)})`]); }
+    else if (cost) { v = cost < 2500 ? 24 : cost < 10000 ? 19 : cost < 25000 ? 14 : cost < 75000 ? 9 : 5; parts.push(["Value", v, 40, `No county value published, so scored on entry cost (${money(cost)})`]); }
+    else { v = 10; parts.push(["Value", v, 40, "No amount owed or county value published"]); }
+    const ad = (p.address || "").trim(), mh = /MH$|MOBILE|PERSONAL PROP/i.test(p.parcel + " " + (p.type || "") + " " + (p.desc || ""));
+    const t = mh ? 3 : /^[1-9]\d*[A-Z]?\s+\S/.test(ad) ? 20 : /^0\s/.test(ad) ? 8 : ad ? 11 : 8;
+    parts.push(["Property", t, 20, mh ? "Mobile home or personal property" : t === 20 ? "Numbered street address (likely a built lot)" : t === 8 && ad ? "Address starts with 0 (usually vacant land)" : ad ? "Street or legal description only (often vacant land)" : "No address published"]);
+    const mi = (C[p.slug] || {}).milesFromAtlanta ?? 50, lo = mi <= 15 ? 15 : mi <= 30 ? 12 : mi <= 45 ? 9 : 6;
+    parts.push(["Location", lo, 15, `${p.county} County is ${Math.round(mi)} miles from downtown Atlanta`]);
+    const m = p.multiple || CMULT[p.slug] || null, co = !m ? 8 : m <= 1.005 ? 15 : m < 2 ? 11 : m < 5 ? 7 : 3;
+    parts.push(["Competition", co, 15, p.multiple ? `Sold for ${p.multiple.toFixed(1)}x the amount owed` : m ? `County median is ${m.toFixed(1)}x the amount owed` : "No winning bids published for this county"]);
+    const n = p.priors.length, nb = p.priors.some((x) => x.status === "No bid"), h = nb ? 2 : n === 0 ? 10 : n === 1 ? 6 : 3;
+    parts.push(["History", h, 10, nb ? "Drew no bid at an earlier auction" : n ? `Listed at ${n} earlier auction${n > 1 ? "s" : ""}` : "First time on file"]);
+    const score = sum(parts.map((x) => x[1]));
+    return (p._ds = { score, rating: score >= 70 ? "Strong" : score >= 50 ? "Good" : score >= 35 ? "Fair" : "Weak", parts });
+  }
+  const scoreHtml = (p) => { const d = dealScore(p); return `<span class="pill r-${d.rating.toLowerCase()}" title="${esc(d.parts.map((x) => `${x[0]} ${x[1]}/${x[2]}`).join(" · "))}">${d.score} ${d.rating}</span>`; };
+
   /* ---------- parcel grid ---------- */
   const COLS = {
     parcel: { label: "Parcel", val: (p) => p.parcel, html: (p) => `<b>${esc(p.parcel)}</b>` },
-    date: { label: "Sale", val: (p) => p.date, html: (p) => fmtDate(p.date) },
-    kind: { label: "Source type", val: (p) => KIND[p.kind], html: (p) => `<span class="kind ${p.kind}">${KIND[p.kind]}</span>` },
+    date: { label: "Auction Date", val: (p) => p.date, html: (p) => fmtDate(p.date) },
+    score: { label: "Deal Score", num: 1, val: (p) => dealScore(p).score, html: scoreHtml },
+    kind: { label: "Source Type", val: (p) => KIND[p.kind], html: (p) => `<span class="kind ${p.kind}">${KIND[p.kind]}</span>` },
     status: { label: "Status", val: (p) => p.status, html: (p) => `<span class="pill ${p.sold ? "ok" : ""}">${esc(p.status)}</span>` },
-    owner: { label: "Owner (defendant)", val: (p) => p.owner || "", html: (p) => esc(p.owner || ""), wrap: 1 },
-    address: { label: "Address or description", val: (p) => p.address || p.desc || "", html: (p) => esc(p.address || p.desc || ""), wrap: 1 },
-    years: { label: "Tax years", val: (p) => p.years || "", html: (p) => esc(p.years || "") },
+    area: { label: "Area", val: (p) => p.area || "", html: (p) => esc(p.area || "") },
+    address: { label: "Address Or Description", val: (p) => p.address || p.desc || "", html: (p) => esc(p.address || p.desc || ""), wrap: 1 },
+    years: { label: "Tax Years", val: (p) => p.years || "", html: (p) => esc(p.years || "") },
     owed: { label: "Owed", num: 1, val: (p) => p.minBid ?? null, html: (p) => money2(p.minBid) },
-    value: { label: "County value", num: 1, val: (p) => p.value ?? null, html: (p) => money(p.value) },
-    won: { label: "Winning bid", num: 1, val: (p) => p.winningBid ?? null, html: (p) => money(p.winningBid) },
+    value: { label: "County Value", num: 1, val: (p) => p.value ?? null, html: (p) => money(p.value) },
+    won: { label: "Sold For (Winning Bid)", num: 1, val: (p) => p.winningBid ?? null, html: (p) => money(p.winningBid) },
     multiple: { label: "Multiple", num: 1, val: (p) => p.multiple, html: (p) => p.multiple ? p.multiple.toFixed(1) + "x" : "" },
     excess: { label: "Excess", num: 1, val: (p) => p.excess ?? null, html: (p) => money(p.excess) },
     buyer: { label: "Buyer", val: (p) => p.buyer || "", html: (p) => esc(p.buyer || ""), wrap: 1 },
-    map: { label: "Map", val: () => "", html: (p) => p.lat ? `<a href="https://www.google.com/maps/search/?api=1&query=${p.lat},${p.lon}" target="_blank" rel="noopener">Map</a>` : (p.address ? `<a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(p.address + ", " + p.county + " County, GA")}" target="_blank" rel="noopener">Map</a>` : "") },
+    priors: { label: "Prior Auctions", num: 1, val: (p) => p.priors.length, html: (p) => p.priors.length },
+    priorDates: { label: "Prior Auction Dates", val: (p) => p.priors.map((x) => x.date).join(" "), html: (p) => p.priors.map((x) => fmtDate(x.date)).join("<br>") },
+    priorSold: { label: "Prior Sold For (Final Bid)", num: 1, val: (p) => { const s = priorSold(p); return s.length ? s[s.length - 1].winningBid : null; }, html: (p) => p.priors.map((x) => x.winningBid > 0 ? `<b>${money(x.winningBid)}</b> <span class="muted small">${fmtDate(x.date, { day: undefined })}</span>` : `<span class="muted small">${x.status === "No bid" ? "No bid" : "Not published"} ${fmtDate(x.date, { day: undefined })}</span>`).join("<br>") },
+    info: { label: "Parcel Info", val: (p) => parcelLinks(p).info ? "Yes" : "", html: (p) => ext(parcelLinks(p).info, "Parcel record") },
+    pmap: { label: "Parcel Map", val: (p) => parcelLinks(p).map ? "Yes" : "", html: (p) => ext(parcelLinks(p).map, "County map") },
+    map: { label: "Google Map", val: () => "", html: (p) => p.lat ? `<a href="https://www.google.com/maps/search/?api=1&query=${p.lat},${p.lon}" target="_blank" rel="noopener">Map</a>` : (p.address ? `<a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(p.address + ", " + p.county + " County, GA")}" target="_blank" rel="noopener">Map</a>` : "") },
   };
-  const ORDER = ["parcel", "date", "kind", "status", "owner", "address", "years", "owed", "value", "won", "multiple", "excess", "buyer", "map"];
+  const ORDER = ["parcel", "date", "score", "kind", "status", "area", "address", "years", "owed", "value", "won", "multiple", "excess", "buyer", "priors", "priorDates", "priorSold", "info", "pmap", "map"];
   const band = (cuts, v, none) => v == null ? none : (cuts.findIndex((c) => v < c) < 0 ? `${short(cuts[cuts.length - 1])} and up` : (() => { const i = cuts.findIndex((c) => v < c); return i === 0 ? `Under ${short(cuts[0])}` : `${short(cuts[i - 1])} to ${short(cuts[i])}`; })());
   const PIV = {
     parcel: { label: "Parcel (first 3 characters)", key: (p) => p.parcel.slice(0, 3) },
-    date: { label: "Sale", key: (p) => fmtDate(p.date), sort: (p) => p.date },
+    date: { label: "Auction Date", key: (p) => fmtDate(p.date), sort: (p) => p.date },
+    score: { label: "Deal Score (rating)", key: (p) => dealScore(p).rating, order: ["Strong", "Good", "Fair", "Weak"] },
     kind: { label: "Source type", key: (p) => KIND[p.kind] }, status: { label: "Status", key: (p) => p.status },
-    owner: { label: "Owner", key: (p) => p.owner || "Not stated" },
+    area: { label: "Area", key: (p) => p.area || "Not stated" },
     address: { label: "Street", key: (p) => ((p.address || "").replace(/^\d+[A-Z]?\s+/, "").split(",")[0] || "Not stated").toUpperCase() },
     years: { label: "Tax years", key: (p) => p.years || "Not stated" },
     owed: { label: "Amount owed (tier)", key: (p) => tierOf(p.minBid), order: TIERS.map((t) => t[2]).concat("Not stated") },
@@ -311,11 +395,16 @@
     multiple: { label: "Multiple (range)", key: (p) => !p.multiple ? "No price" : p.multiple <= 1.005 ? "At minimum" : p.multiple < 2 ? "1x to 2x" : p.multiple < 5 ? "2x to 5x" : p.multiple < 10 ? "5x to 10x" : "10x and up", order: ["At minimum", "1x to 2x", "2x to 5x", "5x to 10x", "10x and up", "No price"] },
     excess: { label: "Excess (range)", key: (p) => band([5000, 25000, 100000], p.excess, "None") },
     buyer: { label: "Buyer", key: (p) => (p.buyer || "Not stated").toUpperCase() },
-    map: { label: "Placed on map", key: (p) => p.lat ? "Yes" : "No" },
+    priors: { label: "Prior Auctions (count)", key: (p) => p.priors.length ? `${p.priors.length} prior auction${p.priors.length > 1 ? "s" : ""}` : "None on file" },
+    priorDates: { label: "Prior Auction Dates (most recent)", key: (p) => p.priors.length ? fmtDate(p.priors[p.priors.length - 1].date) : "None on file" },
+    priorSold: { label: "Prior Sold For (range)", key: (p) => { const s = priorSold(p); return band([2500, 10000, 25000, 75000, 150000], s.length ? s[s.length - 1].winningBid : null, "No prior price"); } },
+    info: { label: "Parcel Info (link available)", key: (p) => parcelLinks(p).info ? "Yes" : "No" },
+    pmap: { label: "Parcel Map (link available)", key: (p) => parcelLinks(p).map ? "Yes" : "No" },
+    map: { label: "Google Map (placed)", key: (p) => p.lat ? "Yes" : "No" },
   };
   const G = { sort: "date", dir: -1, hidden: [], pivot: "", pSort: "n", pDir: -1, filter: null, label: "", rows: [] };
 
-  function visible(ps) { return ORDER.filter((k) => !G.hidden.includes(k) && (k === "parcel" || k === "map" || ps.some((p) => { const v = COLS[k].val(p); return v !== null && v !== "" && v !== undefined; }))); }
+  function visible(ps) { return ORDER.filter((k) => !G.hidden.includes(k) && (k === "parcel" || k === "map" || k === "score" || k === "priors" || ps.some((p) => { const v = COLS[k].val(p); return v !== null && v !== "" && v !== undefined; }))); }
 
   function fillPivot() {
     const cur = G.pivot;
@@ -326,7 +415,7 @@
   function drawGrid(ps) {
     G.rows = ps; fillPivot();
     const q = $("fSearch").value.trim().toLowerCase();
-    let rows = ps.filter((p) => !q || [p.parcel, p.owner, p.address, p.buyer, p.desc].join(" ").toLowerCase().includes(q));
+    let rows = ps.filter((p) => !q || [p.parcel, p.owner, p.address, p.area, p.buyer, p.desc].join(" ").toLowerCase().includes(q));
     if (G.filter) rows = rows.filter((p) => PIV[G.filter.by].key(p) === G.filter.v);
     $("pivotFilter").hidden = !G.filter;
     if (G.filter) { $("pivotFilter").innerHTML = `Showing <b>${esc(PIV[G.filter.by].label)}: ${esc(G.filter.v)}</b> <button type="button" id="clearF">Show all</button>`; $("clearF").onclick = () => { G.filter = null; drawGrid(G.rows); }; }
@@ -367,9 +456,12 @@
   function setPivot(k) { G.pivot = k; const P = PIV[k]; G.pSort = P && (P.order || P.sort) ? "name" : "n"; G.pDir = P && (P.order || P.sort) ? 1 : -1; drawGrid(G.rows); }
 
   function csv(rows, name) {
-    const ks = ["county", "parcel", "date", "kind", "status", "owner", "address", "years", "minBid", "value", "winningBid", "multiple", "excess", "buyer", "lat", "lon", "source"];
+    const ks = ["county", "parcel", "auctionDate", "dealScore", "dealRating", "kind", "status", "area", "address", "years", "minBid", "value", "soldFor", "multiple", "excess", "buyer", "priorAuctions", "priorAuctionDates", "priorSoldFor", "parcelInfo", "parcelMap", "lat", "lon", "source"];
+    const X = { auctionDate: (p) => p.date, dealScore: (p) => dealScore(p).score, dealRating: (p) => dealScore(p).rating, kind: (p) => KIND[p.kind], soldFor: (p) => p.winningBid, priorAuctions: (p) => p.priors.length,
+      priorAuctionDates: (p) => p.priors.map((x) => x.date).join("; "), priorSoldFor: (p) => p.priors.map((x) => x.winningBid > 0 ? `${x.date}: $${x.winningBid}` : `${x.date}: ${x.status === "No bid" ? "no bid" : "not published"}`).join("; "),
+      parcelInfo: (p) => parcelLinks(p).info || "", parcelMap: (p) => parcelLinks(p).map || "" };
     const q = (v) => `"${String(v == null ? "" : typeof v === "number" && !Number.isInteger(v) ? v.toFixed(2) : v).replace(/"/g, '""')}"`;
-    const lines = [ks.map(q).join(",")].concat(rows.map((p) => ks.map((k) => q(k === "kind" ? KIND[p.kind] : p[k])).join(",")));
+    const lines = [ks.map(q).join(",")].concat(rows.map((p) => ks.map((k) => q(X[k] ? X[k](p) : p[k])).join(",")));
     const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([lines.join("\n")], { type: "text/csv" })); a.download = name; document.body.appendChild(a); a.click(); a.remove();
   }
 
@@ -378,17 +470,19 @@
     const gm = p.lat ? `https://www.google.com/maps/search/?api=1&query=${p.lat},${p.lon}` : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent((p.address || p.parcel) + ", " + p.county + " County, GA")}`;
     const c = C[p.slug];
     $("detailBody").innerHTML = `<h2>${esc(p.parcel)}</h2><p class="muted">${esc(p.county)} County · ${esc(p.address || p.desc || "No address published")}</p><div class="dgrid">` +
-      row("Sale", fmtDate(p.date, { weekday: "long" })) + row("Source", `${KIND[p.kind]} <span class="muted small">(${KIND_HELP[p.kind]})</span>`) + row("Status", esc(p.status)) + row("Owner / defendant", esc(p.owner)) +
-      row("Tax years", esc(p.years)) + row("Amount owed (opening bid)", money2(p.minBid)) + row("County value", money(p.value)) + row("Winning bid", money(p.winningBid)) +
+      row("Auction date", fmtDate(p.date, { weekday: "long" })) + row("Deal score", scoreHtml(p)) + row("Area", esc(p.area)) + row("Source", `${KIND[p.kind]} <span class="muted small">(${KIND_HELP[p.kind]})</span>`) + row("Status", esc(p.status)) + row("Owner / defendant", esc(p.owner)) +
+      row("Tax years", esc(p.years)) + row("Amount owed (opening bid)", money2(p.minBid)) + row("County value", money(p.value)) + row("Sold for (winning bid)", money(p.winningBid)) +
       row("Multiple of amount owed", p.multiple ? p.multiple.toFixed(2) + "x" : "") + row("Excess funds", money2(p.excess)) + row("Buyer", esc(p.buyer)) + row("Sale number", esc(p.saleNo)) + row("Type", esc(p.type)) +
       row("Description", esc(p.desc)) + row("Coordinates", p.lat ? `${p.lat.toFixed(5)}, ${p.lon.toFixed(5)}` : "") + `</div>` +
-      `<div class="dlinks"><a href="${esc(p.source)}" target="_blank" rel="noopener">County source file</a><a href="${esc(c.page)}" target="_blank" rel="noopener">County tax sale page</a>${c.parcel ? `<a href="${esc(c.parcel)}" target="_blank" rel="noopener">Parcel lookup</a>` : ""}<a href="${gm}" target="_blank" rel="noopener">Google Maps</a><a href="#${p.slug}">${esc(p.county)} County tab</a></div>`;
+      `<h3 class="mt">Deal Score Breakdown</h3><table class="data mini"><tbody>${dealScore(p).parts.map((x) => `<tr><td><b>${x[0]}</b></td><td class="num">${x[1]} / ${x[2]}</td><td class="wrap">${esc(x[3])}</td></tr>`).join("")}</tbody></table>` +
+      (p.priors.length ? `<h3 class="mt">Prior Auctions</h3><table class="data mini"><thead><tr><th>Auction Date</th><th>Status</th><th class="num">Owed</th><th class="num">Sold For (Final Bid)</th><th>Buyer</th></tr></thead><tbody>${p.priors.slice().reverse().map((x) => `<tr><td>${fmtDate(x.date)}</td><td>${esc(x.status)}</td><td class="num">${money(x.minBid)}</td><td class="num">${x.winningBid > 0 ? "<b>" + money(x.winningBid) + "</b>" : '<span class="muted">' + (x.status === "No bid" ? "No bid" : "Not published") + "</span>"}</td><td class="wrap">${esc(x.buyer || "")}</td></tr>`).join("")}</tbody></table>` : "") +
+      `<div class="dlinks">${ext(parcelLinks(p).info, "Parcel record (owner, value, sales history)")}${ext(parcelLinks(p).map, "County parcel map")}<a href="${esc(p.source)}" target="_blank" rel="noopener">County source file</a><a href="${esc(c.page)}" target="_blank" rel="noopener">County tax sale page</a>${c.parcel && !parcelLinks(p).info ? `<a href="${esc(c.parcel)}" target="_blank" rel="noopener">Parcel lookup</a>` : ""}<a href="${gm}" target="_blank" rel="noopener">Google Maps</a><a href="#${p.slug}">${esc(p.county)} County tab</a></div>`;
     $("detail").showModal();
   }
 
   /* ---------- global search ---------- */
-  const FIELDS = { county: (p) => p.county, parcel: (p) => p.parcel + " " + p.parcel.replace(/[^0-9A-Z]/gi, ""), owner: (p) => p.owner, address: (p) => p.address, buyer: (p) => p.buyer, status: (p) => p.status, kind: (p) => KIND[p.kind], date: (p) => p.date + " " + fmtDate(p.date, { month: "long" }) };
-  const NUMS = { year: (p) => +p.year, owed: (p) => p.minBid, won: (p) => p.winningBid, bid: (p) => p.winningBid, multiple: (p) => p.multiple, excess: (p) => p.excess, value: (p) => p.value };
+  const FIELDS = { county: (p) => p.county, parcel: (p) => p.parcel + " " + p.parcel.replace(/[^0-9A-Z]/gi, ""), owner: (p) => p.owner, address: (p) => p.address, area: (p) => p.area, city: (p) => p.area, buyer: (p) => p.buyer, status: (p) => p.status, kind: (p) => KIND[p.kind], date: (p) => p.date + " " + fmtDate(p.date, { month: "long" }) };
+  const NUMS = { year: (p) => +p.year, owed: (p) => p.minBid, won: (p) => p.winningBid, bid: (p) => p.winningBid, multiple: (p) => p.multiple, excess: (p) => p.excess, value: (p) => p.value, score: (p) => dealScore(p).score, priors: (p) => p.priors.length };
   function parseQ(q) {
     const terms = [];
     (q.match(/"[^"]+"|\S+/g) || []).forEach((t) => {
@@ -402,7 +496,7 @@
     });
     return terms;
   }
-  function hay(p) { return p._h || (p._h = [p.county, p.parcel, p.parcel.replace(/[^0-9A-Z]/gi, ""), p.owner, p.address, p.buyer, p.status, KIND[p.kind], p.date, fmtDate(p.date, { month: "long" }), p.desc, p.years].join(" ").toLowerCase()); }
+  function hay(p) { return p._h || (p._h = [p.county, p.parcel, p.parcel.replace(/[^0-9A-Z]/gi, ""), p.owner, p.address, p.area, p.buyer, p.status, KIND[p.kind], p.date, fmtDate(p.date, { month: "long" }), p.desc, p.years].join(" ").toLowerCase()); }
   function matches(p, ts) {
     return ts.every((t) => {
       if (t.num) { const v = NUMS[t.num](p); if (v == null || isNaN(v)) return false; return t.op === ">" ? v > t.v : t.op === "<" ? v < t.v : t.op === ">=" ? v >= t.v : t.op === "<=" ? v <= t.v : Math.abs(v - t.v) < 0.5; }
@@ -416,11 +510,11 @@
     if (!q) { $("results").hidden = true; return; }
     RES = ALL.filter((p) => matches(p, parseQ(q))).sort((a, b) => b.date.localeCompare(a.date));
     $("results").hidden = false;
-    $("resTitle").textContent = `${RES.length.toLocaleString()} result${RES.length === 1 ? "" : "s"} for "${q}"`;
+    $("resTitle").textContent = `${RES.length.toLocaleString()} Result${RES.length === 1 ? "" : "s"} For "${q}"`;
     const shown = RES.slice(0, 500);
-    $("resTable").innerHTML = `<thead><tr><th>County</th><th>Parcel</th><th>Sale</th><th>Source</th><th>Status</th><th>Owner</th><th>Address</th><th class="num">Owed</th><th class="num">Winning bid</th><th>Buyer</th></tr></thead><tbody>` +
-      shown.map((p, i) => `<tr data-i="${i}"><td>${esc(p.county)}</td><td><b>${esc(p.parcel)}</b></td><td>${fmtDate(p.date)}</td><td><span class="kind ${p.kind}">${KIND[p.kind]}</span></td><td>${esc(p.status)}</td><td class="wrap">${esc(p.owner || "")}</td><td class="wrap">${esc(p.address || "")}</td><td class="num">${money2(p.minBid)}</td><td class="num">${money(p.winningBid)}</td><td class="wrap">${esc(p.buyer || "")}</td></tr>`).join("") + "</tbody>";
-    $("resTable").querySelectorAll("tbody tr").forEach((tr) => tr.addEventListener("click", () => showDetail(shown[+tr.dataset.i])));
+    $("resTable").innerHTML = `<thead><tr><th>County</th><th>Parcel</th><th>Auction Date</th><th>Deal Score</th><th>Source</th><th>Status</th><th>Area</th><th>Address</th><th class="num">Owed</th><th class="num">Sold For</th><th>Buyer</th><th class="num">Prior Auctions</th><th>Parcel Info</th></tr></thead><tbody>` +
+      shown.map((p, i) => `<tr data-i="${i}"><td>${esc(p.county)}</td><td><b>${esc(p.parcel)}</b></td><td>${fmtDate(p.date)}</td><td>${scoreHtml(p)}</td><td><span class="kind ${p.kind}">${KIND[p.kind]}</span></td><td>${esc(p.status)}</td><td>${esc(p.area || "")}</td><td class="wrap">${esc(p.address || "")}</td><td class="num">${money2(p.minBid)}</td><td class="num">${money(p.winningBid)}</td><td class="wrap">${esc(p.buyer || "")}</td><td class="num">${p.priors.length}</td><td>${ext(parcelLinks(p).info, "Parcel record")}</td></tr>`).join("") + "</tbody>";
+    $("resTable").querySelectorAll("tbody tr").forEach((tr) => tr.addEventListener("click", (e) => e.target.tagName !== "A" && showDetail(shown[+tr.dataset.i])));
     $("resNote").textContent = RES.length > 500 ? "First 500 shown. Download the results for all of them." : "Click a row for details.";
   }
 

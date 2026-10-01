@@ -27,3 +27,8 @@
 @media (max-width: 560px) { .map.tallmap { height: 340px; } .countyhead h2 { font-size: 20px; } }
 .countyhead .picker { max-width: 100%; }
 .countyhead .picker select { max-width: min(420px, calc(100vw - 110px)); }
+
+/* detail tables and link columns */
+table.mini { width: 100%; margin: 6px 0 10px; font-size: 0.86rem; }
+table.mini td, table.mini th { padding: 5px 8px; }
+#parcelTable td a, #resTable td a { white-space: nowrap; }
