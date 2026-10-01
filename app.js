@@ -278,7 +278,7 @@
     });
     if (pts.length) b = L.latLngBounds(pts.map((p) => [p.lat, p.lon])).pad(0.15).extend(b || []);
     setTimeout(() => { cMap.invalidateSize(); if (b) cMap.fitBounds(b, { maxZoom: 14 }); }, 30);
-    $("mapNote").innerHTML = pts.length ? `${pts.length} of ${ps.length} parcels placed. Orange = sold above amount owed, blue = sold at amount owed, green = listed or outcome not published.` : `None of these parcels have a street address the geocoder could place, so only the county outline is shown.`;
+    $("mapNote").innerHTML = pts.length ? `${pts.length} of ${ps.length} parcels placed, using the county's parcel map where it is public and the street address otherwise. Orange = sold above amount owed, blue = sold at amount owed, green = listed or outcome not published.` : `None of these parcels could be placed from the county parcel map or a street address, so only the county outline is shown.`;
   }
 
 
@@ -368,7 +368,7 @@
     years: { label: "Tax Years", val: (p) => p.years || "", html: (p) => esc(p.years || "") },
     owed: { label: "Owed", num: 1, val: (p) => p.minBid ?? null, html: (p) => money2(p.minBid) },
     value: { label: "County Value", num: 1, val: (p) => p.value ?? null, html: (p) => money(p.value) },
-    won: { label: "Sold For (Winning Bid)", num: 1, val: (p) => p.winningBid ?? null, html: (p) => money(p.winningBid) },
+    won: { label: "Sold For (Winning Bid)", num: 1, val: (p) => p.winningBid ?? null, html: (p) => p.winningBid > 0 ? `<span${p.priceSource ? ` title="${esc(p.priceSource)}"` : ""}>${money(p.winningBid)}${/^Derived/.test(p.priceSource || "") ? '<sup title="Derived: amount owed + excess funds">*</sup>' : ""}</span>` : p.date < TODAY ? `<span class="muted small">${p.status === "No bid" ? "No bid" : p.sold ? "Sold, price not published" : "Not published"}</span>` : "" },
     multiple: { label: "Multiple", num: 1, val: (p) => p.multiple, html: (p) => p.multiple ? p.multiple.toFixed(1) + "x" : "" },
     excess: { label: "Excess", num: 1, val: (p) => p.excess ?? null, html: (p) => money(p.excess) },
     buyer: { label: "Buyer", val: (p) => p.buyer || "", html: (p) => esc(p.buyer || ""), wrap: 1 },
@@ -377,7 +377,7 @@
     priorSold: { label: "Prior Sold For (Final Bid)", num: 1, val: (p) => { const s = priorSold(p); return s.length ? s[s.length - 1].winningBid : null; }, html: (p) => p.priors.map((x) => x.winningBid > 0 ? `<b>${money(x.winningBid)}</b> <span class="muted small">${fmtDate(x.date, { day: undefined })}</span>` : `<span class="muted small">${x.status === "No bid" ? "No bid" : "Not published"} ${fmtDate(x.date, { day: undefined })}</span>`).join("<br>") },
     info: { label: "Parcel Info", val: (p) => parcelLinks(p).info ? "Yes" : "", html: (p) => ext(parcelLinks(p).info, "Parcel record") },
     pmap: { label: "Parcel Map", val: (p) => parcelLinks(p).map ? "Yes" : "", html: (p) => ext(parcelLinks(p).map, "County map") },
-    map: { label: "Google Map", val: () => "", html: (p) => p.lat ? `<a href="https://www.google.com/maps/search/?api=1&query=${p.lat},${p.lon}" target="_blank" rel="noopener">Map</a>` : (p.address ? `<a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(p.address + ", " + p.county + " County, GA")}" target="_blank" rel="noopener">Map</a>` : "") },
+    map: { label: "Google Map", val: () => "", html: (p) => p.lat ? `<a href="https://www.google.com/maps/search/?api=1&query=${p.lat},${p.lon}" target="_blank" rel="noopener">Map</a>` : (/^\d/.test(p.address || "") ? `<a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(p.address.split(",")[0] + ", " + (p.area ? p.area + ", " : p.county + " County, ") + "GA")}" target="_blank" rel="noopener">Map (by address)</a>` : "") },
   };
   const ORDER = ["parcel", "date", "score", "kind", "status", "area", "address", "years", "owed", "value", "won", "multiple", "excess", "buyer", "priors", "priorDates", "priorSold", "info", "pmap", "map"];
   const band = (cuts, v, none) => v == null ? none : (cuts.findIndex((c) => v < c) < 0 ? `${short(cuts[cuts.length - 1])} and up` : (() => { const i = cuts.findIndex((c) => v < c); return i === 0 ? `Under ${short(cuts[0])}` : `${short(cuts[i - 1])} to ${short(cuts[i])}`; })());
@@ -456,7 +456,7 @@
   function setPivot(k) { G.pivot = k; const P = PIV[k]; G.pSort = P && (P.order || P.sort) ? "name" : "n"; G.pDir = P && (P.order || P.sort) ? 1 : -1; drawGrid(G.rows); }
 
   function csv(rows, name) {
-    const ks = ["county", "parcel", "auctionDate", "dealScore", "dealRating", "kind", "status", "area", "address", "years", "minBid", "value", "soldFor", "multiple", "excess", "buyer", "priorAuctions", "priorAuctionDates", "priorSoldFor", "parcelInfo", "parcelMap", "lat", "lon", "source"];
+    const ks = ["county", "parcel", "auctionDate", "dealScore", "dealRating", "kind", "status", "area", "address", "years", "minBid", "value", "soldFor", "multiple", "excess", "buyer", "priorAuctions", "priorAuctionDates", "priorSoldFor", "priceSource", "parcelInfo", "parcelMap", "lat", "lon", "source"];
     const X = { auctionDate: (p) => p.date, dealScore: (p) => dealScore(p).score, dealRating: (p) => dealScore(p).rating, kind: (p) => KIND[p.kind], soldFor: (p) => p.winningBid, priorAuctions: (p) => p.priors.length,
       priorAuctionDates: (p) => p.priors.map((x) => x.date).join("; "), priorSoldFor: (p) => p.priors.map((x) => x.winningBid > 0 ? `${x.date}: $${x.winningBid}` : `${x.date}: ${x.status === "No bid" ? "no bid" : "not published"}`).join("; "),
       parcelInfo: (p) => parcelLinks(p).info || "", parcelMap: (p) => parcelLinks(p).map || "" };
@@ -471,7 +471,7 @@
     const c = C[p.slug];
     $("detailBody").innerHTML = `<h2>${esc(p.parcel)}</h2><p class="muted">${esc(p.county)} County · ${esc(p.address || p.desc || "No address published")}</p><div class="dgrid">` +
       row("Auction date", fmtDate(p.date, { weekday: "long" })) + row("Deal score", scoreHtml(p)) + row("Area", esc(p.area)) + row("Source", `${KIND[p.kind]} <span class="muted small">(${KIND_HELP[p.kind]})</span>`) + row("Status", esc(p.status)) + row("Owner / defendant", esc(p.owner)) +
-      row("Tax years", esc(p.years)) + row("Amount owed (opening bid)", money2(p.minBid)) + row("County value", money(p.value)) + row("Sold for (winning bid)", money(p.winningBid)) +
+      row("Tax years", esc(p.years)) + row("Amount owed (opening bid)", money2(p.minBid)) + row("County value", money(p.value)) + row("Sold for (winning bid)", p.winningBid > 0 ? money2(p.winningBid) : p.date < TODAY ? (p.status === "No bid" ? "No bid" : p.sold ? "Sold, price not published by the county" : "Not published by the county (most listed parcels are paid off before the sale)") : "") + row("Price source", esc(p.winningBid > 0 ? (p.priceSource || "County " + KIND[p.kind].toLowerCase()) : "")) +
       row("Multiple of amount owed", p.multiple ? p.multiple.toFixed(2) + "x" : "") + row("Excess funds", money2(p.excess)) + row("Buyer", esc(p.buyer)) + row("Sale number", esc(p.saleNo)) + row("Type", esc(p.type)) +
       row("Description", esc(p.desc)) + row("Coordinates", p.lat ? `${p.lat.toFixed(5)}, ${p.lon.toFixed(5)}` : "") + `</div>` +
       `<h3 class="mt">Deal Score Breakdown</h3><table class="data mini"><tbody>${dealScore(p).parts.map((x) => `<tr><td><b>${x[0]}</b></td><td class="num">${x[1]} / ${x[2]}</td><td class="wrap">${esc(x[3])}</td></tr>`).join("")}</tbody></table>` +

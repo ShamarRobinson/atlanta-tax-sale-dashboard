@@ -17,11 +17,17 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from registry import COUNTIES
+import parcel_geo
+import prices_metro as PM
+import results_outer as RO
 
 HERE = Path(__file__).resolve().parent
 DATA = HERE / "data"
 DATA.mkdir(exist_ok=True)
 CACHE = DATA / "geocache.json"
+PCACHE = DATA / "pricecache.json"
+GCACHE = DATA / "parcelgeo.json"
+ACACHE = DATA / "areacache.json"
 if not (HERE / "region.json").exists():
     import build_region
     build_region.main()
@@ -39,6 +45,108 @@ def merge(old, new):
     for a in new:
         by[(a["date"], a["kind"])] = a
     return sorted(by.values(), key=lambda a: (a["date"], a["kind"]), reverse=True)
+
+
+# Extra sources of sold prices per county: (functions returning auctions, kinds of previously saved auctions to drop first)
+EXTRA = {
+    "fayette": ([RO.fayette_results], {"excess"}),
+    "carroll": ([RO.carroll_results, RO.carroll_excess_prices], {"excess"}),
+    "meriwether": ([RO.meriwether_excess], set()),
+    "walton": ([RO.walton_excess], set()),
+    "troup": ([RO.troup_derived], {"excess"}),
+    "cobb": ([PM.cobb_tax_deeds], set()),
+}
+PRICE_FIELDS = ("winningBid", "buyer", "excess", "priceSource")
+
+
+def pkey(p):
+    return re.sub(r"[^0-9A-Z]", "", str(p.get("parcel", "")).upper())
+
+
+def fold(auctions):
+    """One record per parcel per sale date: fold excess-list rows into the results/list row for the same date,
+    carrying the sold price, buyer and excess across. Excess rows with no counterpart stay where they are."""
+    by_date = {}
+    for a in auctions:
+        by_date.setdefault(a["date"], []).append(a)
+    out = []
+    for d, group in by_date.items():
+        main = [a for a in group if a["kind"] != "excess"]
+        idx = {}
+        for a in sorted(main, key=lambda a: a["kind"] != "results"):
+            for p in a["parcels"]:
+                idx.setdefault(pkey(p), p)
+        for a in group:
+            if a["kind"] != "excess":
+                continue
+            keep = []
+            for p in a["parcels"]:
+                m = idx.get(pkey(p))
+                if not m:
+                    keep.append(p)
+                    continue
+                for k in PRICE_FIELDS:
+                    if p.get(k) and not m.get(k):
+                        m[k] = p[k]
+                if not m.get("winningBid") and m.get("minBid") and m.get("excess"):
+                    m["winningBid"] = round(m["minBid"] + m["excess"], 2)
+                    m["priceSource"] = "Derived: amount owed + excess funds"
+                for k in ("owner", "address", "minBid"):
+                    if p.get(k) and not m.get(k):
+                        m[k] = p[k]
+                if m.get("status") in (None, "Listed"):
+                    m["status"] = "Sold"
+            a["parcels"] = keep
+        out.extend(a for a in group if a["parcels"])
+    return sorted(out, key=lambda a: (a["date"], a["kind"]), reverse=True)
+
+
+def _place(lat, lon):
+    u = ("https://geocoding.geo.census.gov/geocoder/geographies/coordinates?x=%s&y=%s&benchmark=Public_AR_Current&vintage=Current_Current"
+         "&layers=Incorporated%%20Places,County%%20Subdivisions&format=json" % (lon, lat))
+    for _ in range(2):
+        try:
+            req = urllib.request.Request(u, headers={"User-Agent": "Mozilla/5.0"})
+            g = json.loads(urllib.request.urlopen(req, timeout=30).read())["result"]["geographies"]
+            pl = g.get("Incorporated Places") or []
+            if pl:
+                return re.sub(r"\s+(city|town|village|CDP|\(balance\)|consolidated government.*|unified government.*)$", "", pl[0]["NAME"]).strip()
+            cs = g.get("County Subdivisions") or []
+            if cs:
+                return re.sub(r"\s+CCD$", "", cs[0]["NAME"]).strip() + " (unincorporated)"
+            return ""
+        except Exception:
+            time.sleep(1)
+    return None
+
+
+def fill_areas(auctions, acache):
+    """City for parcels that have coordinates but no area: the incorporated place the point falls in, else the census county division."""
+    from concurrent.futures import ThreadPoolExecutor
+    need = {}
+    for a in auctions:
+        for p in a["parcels"]:
+            if p.get("lat") and not p.get("area"):
+                need.setdefault(f"{p['lat']:.4f},{p['lon']:.4f}", (p["lat"], p["lon"]))
+    todo = [(k, v) for k, v in need.items() if k not in acache]
+    if todo:
+        with ThreadPoolExecutor(6) as ex:
+            for (k, _), r in zip(todo, ex.map(lambda kv: _place(*kv[1]), todo)):
+                if r is not None:
+                    acache[k] = r
+    n = 0
+    for a in auctions:
+        for p in a["parcels"]:
+            if p.get("lat") and not p.get("area"):
+                r = acache.get(f"{p['lat']:.4f},{p['lon']:.4f}")
+                if r:
+                    p["area"] = FIX.get(r, r)
+                    n += 1
+    return n
+
+
+def load(path):
+    return json.loads(path.read_text()) if path.exists() else {}
 
 
 def geocode(rows, fips):
@@ -97,7 +205,8 @@ def area_of(p, g):
 
 
 def main(only=None):
-    cache = json.loads(CACHE.read_text()) if CACHE.exists() else {}
+    cache = load(CACHE)
+    pcache, gcache, acache = load(PCACHE), load(GCACHE), load(ACACHE)
     index = []
     for c in COUNTIES:
         s = slug(c["name"])
@@ -108,12 +217,36 @@ def main(only=None):
             print("Fetching", c["name"], flush=True)
             try:
                 fresh = c["fetch"]()
+                funcs, drop = EXTRA.get(s, ([], set()))
+                extra = []
+                for fn in funcs:
+                    try:
+                        extra += fn()
+                    except Exception as e:
+                        print("  extra source failed:", fn.__name__, type(e).__name__, e)
+                if extra:
+                    keys = {(a["date"], a["kind"]) for a in extra}
+                    fresh = [a for a in fresh if (a["date"], a["kind"]) not in keys and a["kind"] not in drop] + extra
+                    auctions = [a for a in auctions if a["kind"] not in drop]
                 auctions = merge(auctions, fresh)
                 print(f"  {len(fresh)} auctions, {sum(len(a['parcels']) for a in fresh)} parcel rows")
             except Exception as e:
                 err = f"{type(e).__name__}: {e}"[:200]
                 print("  FAILED", err)
                 traceback.print_exc()
+        today = datetime.now().strftime("%Y-%m-%d")
+        if auctions and (not only or s in only):
+            try:
+                if s == "cobb":
+                    print("  cobb deed prices:", PM.enrich_cobb(auctions))
+                elif s == "clayton":
+                    print("  clayton payment prices:", PM.enrich_clayton(auctions, pcache))
+                elif s == "dekalb":
+                    print("  dekalb deed prices:", PM.enrich_dekalb(auctions, pcache))
+            except Exception as e:
+                print("  price lookup failed:", type(e).__name__, e)
+            PCACHE.write_text(json.dumps(pcache))
+        auctions = fold(auctions)
         m = META.get(c["name"], {})
         fips = m.get("fips", "")
         # geocode street addresses once, cached by county + street
@@ -141,6 +274,29 @@ def main(only=None):
                 ar = area_of(p, g)
                 if ar:
                     p["area"] = ar
+        # exact parcel location from the county's parcel GIS (overrides the street-address geocode)
+        if auctions and (not only or s in only):
+            ids = sorted({p["parcel"] for a in auctions for p in a["parcels"] if p.get("parcel")})
+            try:
+                loc = parcel_geo.locate(s, ids, gcache)
+            except Exception as e:
+                loc = {}
+                print("  parcel GIS failed:", type(e).__name__, e)
+            GCACHE.write_text(json.dumps(gcache))
+            n = 0
+            for a in auctions:
+                for p in a["parcels"]:
+                    h = loc.get(p.get("parcel"))
+                    if h and h.get("lat"):
+                        p["lat"], p["lon"], p["geo"] = round(h["lat"], 6), round(h["lon"], 6), "parcel"
+                        n += 1
+                        if h.get("city") and not p.get("area"):
+                            p["area"] = FIX.get(h["city"].title(), h["city"].title())
+                        if h.get("address") and not p.get("address"):
+                            p["address"] = h["address"]
+            print(f"  parcel GIS placed {n} records")
+            print("  areas from location:", fill_areas(auctions, acache))
+            ACACHE.write_text(json.dumps(acache))
         rec = {k: v for k, v in c.items() if k != "fetch"}
         rec.update(slug=s, label=c.get("label", c["name"]), fips=fips, milesFromAtlanta=m.get("near"), pctInRadius=m.get("inside"),
                    automated=bool(c.get("fetch")), auctions=auctions, lastChecked=datetime.now(timezone.utc).isoformat(timespec="seconds"))
@@ -153,7 +309,6 @@ def main(only=None):
         else:
             rec["lastChanged"] = old.get("lastChanged", rec["lastChecked"])
         f.write_text(json.dumps(rec, separators=(",", ":")))
-        today = datetime.now().strftime("%Y-%m-%d")
         up = sorted([a["date"] for a in auctions if a["date"] >= today])
         last = sorted([a["date"] for a in auctions if a["date"] < today], reverse=True)
         index.append(dict(slug=s, name=c["name"], label=rec["label"], fips=fips, run=c["run"], automated=rec["automated"], milesFromAtlanta=rec["milesFromAtlanta"],

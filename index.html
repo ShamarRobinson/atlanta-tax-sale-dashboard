@@ -92,12 +92,12 @@
         <div class="grid2"><div class="chart short"><canvas id="cMult"></canvas></div><div><div class="warstats" id="cWar"></div><h3 class="mt" id="buyersTitle">Most Active Buyers</h3><div class="tablewrap"><table class="data" id="tBuyers"></table></div></div></div>
       </section>
       <section class="card" id="secMap">
-        <div class="head"><h2>Location</h2><p>Parcels with a street address the Census geocoder could place inside the county. Dot size follows the winning bid or the amount owed.</p></div>
+        <div class="head"><h2>Location</h2><p>Parcels placed at their exact location from the county's parcel map, or from the street address where the county map is not public. Dot size follows the winning bid or the amount owed.</p></div>
         <div id="cMap" class="map" role="img" aria-label="Map of parcels"></div>
         <p class="muted small" id="mapNote"></p>
       </section>
       <section class="card" id="parcels">
-        <div class="head"><h2>All Parcels</h2><p>Every parcel in the auction picked above. Click a column header to sort, use <b>Columns</b> to show, hide or pivot columns, and <b>Pivot by</b> to summarize. Click a row for details. <b>Parcel Info</b> opens the county assessor's record for that parcel (documented owner, value and sales history) and <b>Parcel Map</b> opens the county's parcel map on it. <b>Prior Auctions</b> counts earlier auctions on file for the same parcel, with the amount it sold for where the county published it.</p>
+        <div class="head"><h2>All Parcels</h2><p>Every parcel in the auction picked above. Click a column header to sort, use <b>Columns</b> to show, hide or pivot columns, and <b>Pivot by</b> to summarize. Click a row for details. <b>Parcel Info</b> opens the county assessor's record for that parcel (documented owner, value and sales history) and <b>Parcel Map</b> opens the county's parcel map on it. <b>Prior Auctions</b> counts earlier auctions on file for the same parcel, with the amount it sold for. Sold prices come from county results, excess funds lists, recorded tax deeds and tax sale payment records; an asterisk marks a price worked out as amount owed plus excess funds. "Not published" means the county has not released the outcome.</p>
           <p class="small muted"><b>Deal Score</b> (0 to 100) is a screening aid, not advice: value 40 (cost against county value, or entry cost when no value is published), property 20 (numbered street address scores highest), location 15 (distance from Atlanta), competition 15 (how far above the amount owed parcels sell), history 10 (earlier auctions for the same parcel). 70 and up Strong, 50 to 69 Good, 35 to 49 Fair, under 35 Weak.</p></div>
         <div class="filters gridbar">
           <input id="fSearch" type="search" placeholder="Search parcel, owner, address or buyer">
