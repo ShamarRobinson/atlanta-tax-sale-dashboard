@@ -1,0 +1,29 @@
+/* Atlanta additions on top of the shared blue and white theme */
+.tabs { display: flex; gap: 4px; overflow-x: auto; padding: 10px 16px 0; max-width: 1180px; margin: 12px auto 0; scrollbar-width: thin; }
+.tabs a { flex: none; color: #fff; text-decoration: none; font-size: 13px; font-weight: 600; padding: 7px 12px; border: 1px solid #000; border-bottom: none; border-radius: 8px 8px 0 0; background: var(--blue-dark); white-space: nowrap; }
+.tabs a.nodata { background: color-mix(in srgb, var(--blue-dark) 60%, #fff 0%); color: #c9d8f0; font-weight: 500; }
+.tabs a:hover { background: #fff; color: var(--blue-dark); }
+.tabs a.active { background: #fff; color: var(--blue-dark); }
+.tabs a .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #7ee2b8; margin-right: 6px; vertical-align: 1px; }
+.top { padding-bottom: 0; }
+.countyhead .chead { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; align-items: flex-start; }
+.countyhead h2 { font-size: 24px; }
+.cinfo { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 8px 22px; margin-top: 12px; font-size: 14px; }
+.cinfo div { border-bottom: 1px dashed var(--rule); padding: 6px 0; }
+.cinfo b { display: block; font-size: 12px; color: var(--text-2); font-weight: 600; }
+.map.tallmap { height: 460px; }
+.mt { margin-top: 16px; }
+.legend .sq { display: inline-block; width: 12px; height: 12px; border: 1px solid #000; margin-right: 6px; vertical-align: -1px; }
+.legend .sq.has { background: #2a78d6; opacity: .75; }
+.legend .sq.info { background: #dfe7f3; }
+.legend .ring { display: inline-block; width: 12px; height: 12px; border: 2px dashed #eb6834; border-radius: 50%; margin-right: 6px; vertical-align: -2px; }
+.kind { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 99px; border: 1px solid #000; white-space: nowrap; }
+.kind.results { background: #e5f6ee; }
+.kind.excess { background: #fff4dc; }
+.kind.list { background: var(--blue-tint); }
+#rTable tbody tr, #rUpcoming tbody tr { cursor: pointer; }
+.emptyinfo h3 { margin-top: 4px; }
+.emptyinfo ul { margin: 6px 0 0; padding-left: 20px; }
+@media (max-width: 560px) { .map.tallmap { height: 340px; } .countyhead h2 { font-size: 20px; } }
+.countyhead .picker { max-width: 100%; }
+.countyhead .picker select { max-width: min(420px, calc(100vw - 110px)); }

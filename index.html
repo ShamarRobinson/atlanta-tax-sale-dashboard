@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Metro Atlanta Tax Sale Tracker</title>
+<meta name="description" content="Delinquent property tax sales for Fulton County and every county within 52 miles of downtown Atlanta: upcoming sale lists, prior auctions, winning bids, excess funds and analysis. Updates weekly from county sources.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="atl.css">
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <div class="eyebrow">Fulton County and surrounding Georgia counties &middot; Property Tax Sales</div>
+    <div class="titlerow">
+      <h1>Metro Atlanta Tax Sale Tracker</h1>
+    </div>
+    <div class="freshness" id="freshness">Loading data&hellip;</div>
+    <div class="searchbox">
+      <input id="gSearch" type="search" autocomplete="off" placeholder="Search every county: parcel number, owner, address, buyer, county..." aria-label="Search all counties">
+      <div class="examples">Try: <button type="button" data-q="county:gwinnett won>100000">county:gwinnett won&gt;100000</button><button type="button" data-q="status:sold county:clarke">status:sold county:clarke</button><button type="button" data-q="owed<1000 county:troup">owed&lt;1000 county:troup</button><button type="button" id="searchHelpBtn">How search works</button></div>
+      <div class="searchhelp" id="searchHelp" hidden>
+        Type words to match any field (all words must match). Narrow to a field with <code>field:text</code> and compare numbers with <code>&gt;</code>, <code>&lt;</code> or <code>=</code> (k for thousands, e.g. <code>won&gt;50k</code>).<br>
+        Fields: <code>county</code> <code>parcel</code> <code>owner</code> <code>address</code> <code>buyer</code> <code>status</code> <code>kind</code> <code>year</code> <code>date</code> <code>owed</code> <code>won</code> <code>multiple</code> <code>excess</code> <code>value</code>
+      </div>
+    </div>
+  </div>
+  <nav class="tabs" id="tabs" aria-label="Counties"></nav>
+</header>
+
+<main class="wrap">
+  <section class="card results" id="results" hidden>
+    <div class="reshead"><h2 id="resTitle">Search results</h2><button type="button" id="resCsv">Download results</button><button type="button" id="resClear">Clear</button></div>
+    <div class="tablewrap tall"><table class="data sortable" id="resTable"></table></div>
+    <p class="muted small" id="resNote"></p>
+  </section>
+
+  <!-- REGION OVERVIEW -->
+  <div id="viewRegion">
+    <section class="kpis" id="rKpis"></section>
+    <section class="card">
+      <div class="head"><h2>The region</h2><p id="rIntro"></p></div>
+      <div class="grid2">
+        <div><div id="rMap" class="map tallmap" role="img" aria-label="Map of counties in the radius"></div>
+          <div class="legend"><span><i class="sq has"></i>Parcel data on file</span><span><i class="sq info"></i>Links and schedule only</span><span><i class="ring"></i>52-mile radius</span></div></div>
+        <div><h3>Upcoming sales on file</h3><div class="tablewrap"><table class="data" id="rUpcoming"></table></div>
+          <h3 class="mt">Where the data is richest</h3><div class="chart short"><canvas id="rRich"></canvas></div></div>
+      </div>
+    </section>
+    <section class="card">
+      <div class="head"><h2>All counties</h2><p>Click a county to open its tab. "Prices" counts parcels with a published winning bid. Counties without parcel data still have their schedule and official links.</p></div>
+      <div class="tablewrap tall"><table class="data sortable" id="rTable"></table></div>
+    </section>
+    <section class="card">
+      <div class="head"><h2>Prices across counties</h2><p>Winning bids from every published result or excess funds list, by county.</p></div>
+      <div class="grid2">
+        <div class="chart"><canvas id="rPrices"></canvas></div>
+        <div class="tablewrap"><table class="data" id="rPriceTable"></table></div>
+      </div>
+      <p class="takeaway" id="rTake"></p>
+    </section>
+  </div>
+
+  <!-- COUNTY VIEW -->
+  <div id="viewCounty" hidden>
+    <section class="card countyhead">
+      <div class="chead">
+        <div><h2 id="cName"></h2><p class="muted" id="cSub"></p></div>
+        <label class="picker">Auction <select id="cAuction"></select></label>
+      </div>
+      <div class="cinfo" id="cInfo"></div>
+      <p class="takeaway" id="cNote"></p>
+    </section>
+    <div id="cEmpty" class="card" hidden></div>
+    <div id="cBody">
+      <section class="kpis" id="cKpis"></section>
+      <section class="card" id="secTiers">
+        <div class="head"><h2>Cost tiers</h2><p>Parcels grouped by amount owed (the opening bid). Where winning bids are published, the average winning bid per tier is shown too.</p></div>
+        <div class="grid2"><div class="chart"><canvas id="cTiers"></canvas></div><div class="tablewrap"><table class="data" id="tTiers"></table></div></div>
+        <p class="takeaway" id="kTiers"></p>
+      </section>
+      <section class="card" id="secHistory">
+        <div class="head"><h2>Auction history</h2><p>Every sale on file for this county. Bars show parcels per sale; the line shows the average winning bid where it was published.</p></div>
+        <div class="grid2"><div class="chart"><canvas id="cHist"></canvas></div><div class="tablewrap tall"><table class="data sortable" id="tHist"></table></div></div>
+      </section>
+      <section class="card" id="secBids">
+        <div class="head"><h2>Bidding</h2><p>How far above the amount owed parcels sold. A multiple of 1.0x means it sold for exactly what was owed.</p></div>
+        <div class="grid2"><div class="chart short"><canvas id="cMult"></canvas></div><div><div class="warstats" id="cWar"></div><h3 class="mt" id="buyersTitle">Most active buyers</h3><div class="tablewrap"><table class="data" id="tBuyers"></table></div></div></div>
+      </section>
+      <section class="card" id="secMap">
+        <div class="head"><h2>Location</h2><p>Parcels with a street address the Census geocoder could place inside the county. Dot size follows the winning bid or the amount owed.</p></div>
+        <div id="cMap" class="map" role="img" aria-label="Map of parcels"></div>
+        <p class="muted small" id="mapNote"></p>
+      </section>
+      <section class="card" id="parcels">
+        <div class="head"><h2>All parcels</h2><p>Every parcel in the auction picked above. Click a column header to sort, use <b>Columns</b> to show, hide or pivot columns, and <b>Pivot by</b> to summarize. Click a row for details.</p></div>
+        <div class="filters gridbar">
+          <input id="fSearch" type="search" placeholder="Search parcel, owner, address or buyer">
+          <label class="inline">Pivot by <select id="pivotBy"></select></label>
+          <div class="colmenu"><button type="button" id="colBtn">Columns</button><div class="colpanel" id="colPanel" hidden></div></div>
+          <button id="csvBtn" type="button">Download CSV</button>
+        </div>
+        <div class="chipbar" id="pivotFilter" hidden></div>
+        <div class="tablewrap tall"><table class="data sortable" id="parcelTable"></table></div>
+        <p class="muted small" id="tableNote"></p>
+      </section>
+    </div>
+  </div>
+
+  <footer class="foot muted small">
+    Data comes from each county's Tax Commissioner or Sheriff website (linked on every county tab) and is checked weekly. Addresses are placed on the map with the <a href="https://geocoding.geo.census.gov/" target="_blank" rel="noopener">U.S. Census geocoder</a>; county boundaries are from the <a href="https://www.census.gov/geographies/mapping-files/time-series/geo/cartographic-boundary.html" target="_blank" rel="noopener">Census cartographic files</a>.
+    Georgia counties publish very different amounts of detail, so some tabs have full results and others only links. Lists change up to the day of the sale; always confirm with the county. Not affiliated with any county.
+    <a href="https://github.com/ShamarRobinson/atlanta-tax-sale-dashboard" target="_blank" rel="noopener">Source on GitHub</a>.
+  </footer>
+</main>
+
+<dialog id="detail" class="detail"><div id="detailBody"></div><form method="dialog"><button class="closebtn" aria-label="Close">Close</button></form></dialog>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
