@@ -12,10 +12,14 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: update-data
+  cancel-in-progress: true
+
 jobs:
   update:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 300
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -34,4 +38,5 @@ jobs:
           git config user.email "41898699+github-actions[bot]@users.noreply.github.com"
           git add data/ region.json
           git diff --cached --quiet || git commit -m "Update tax sale data $(date -u +%Y-%m-%d)"
+          git pull --rebase origin main
           git push
