@@ -32,3 +32,53 @@
 table.mini { width: 100%; margin: 6px 0 10px; font-size: 0.86rem; }
 table.mini td, table.mini th { padding: 5px 8px; }
 #parcelTable td a, #resTable td a { white-space: nowrap; }
+
+/* copy buttons, link buttons */
+button.copy { display: inline-block; font: inherit; font-size: 11px; font-weight: 600; padding: 1px 8px; margin-left: 4px; min-height: 0; height: auto; border: 1px solid #000; border-radius: 99px; background: var(--blue-tint); color: var(--blue-dark); cursor: pointer; line-height: 1.45; vertical-align: 1px; white-space: nowrap; }
+button.copy:hover { background: var(--blue); color: #fff; }
+button.copy.ok { background: #e5f6ee; color: #0f7a3d; }
+button.linkbtn { font: inherit; font-size: inherit; padding: 0; min-height: 0; border: 0; background: none; color: var(--blue); text-decoration: underline; cursor: pointer; white-space: nowrap; }
+button.primary { font: inherit; font-weight: 600; padding: 6px 12px; border: 1px solid #000; border-radius: 8px; background: var(--blue); color: #fff; cursor: pointer; }
+button.primary:hover { background: var(--blue-dark); }
+#parcelTable td .addr, #resTable td .addr { overflow-wrap: anywhere; }
+
+/* auction location card */
+.auction h3 { margin: 0 0 8px; font-size: 18px; color: var(--blue-dark); }
+.agrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 8px 22px; font-size: 14px; }
+.agrid > div { border-bottom: 1px dashed var(--rule); padding: 6px 0; overflow-wrap: anywhere; }
+.agrid b, .vital > b { display: block; font-size: 12px; color: var(--text-2); font-weight: 600; }
+.vital { margin-top: 10px; font-size: 13.5px; }
+.vital ul { margin: 4px 0 0; padding-left: 20px; }
+.vital li { margin: 3px 0; }
+
+/* combined tab */
+#noneList { display: grid; gap: 16px; margin-top: 16px; }
+.nonecard h2 { font-size: 21px; }
+.nonecard.flash { outline: 3px solid #eda100; }
+.jump { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.jump a { font-size: 13px; padding: 3px 10px; border: 1px solid #000; border-radius: 99px; text-decoration: none; background: var(--blue-tint); color: var(--blue-dark); }
+.jump a:hover { background: var(--blue); color: #fff; }
+
+/* gallery */
+.gbar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; }
+.pager { display: inline-flex; align-items: center; gap: 10px; }
+.ggrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 14px; margin-top: 12px; }
+.gtile { margin: 0; border: 1px solid #000; border-radius: 10px; overflow: hidden; background: #fff; cursor: pointer; display: flex; flex-direction: column; }
+.gtile:hover, .gtile:focus { outline: 3px solid var(--blue); }
+.gimg { position: relative; aspect-ratio: 4 / 3; background: #0d1626; }
+.gimg img, .gimg iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; object-fit: cover; display: block; }
+.gimg .shield { position: absolute; inset: 0; }
+.gimg .na, .lbmedia .na { position: absolute; inset: 0; display: grid; place-items: center; background: repeating-linear-gradient(45deg, #eef2f8, #eef2f8 12px, #e2e9f4 12px, #e2e9f4 24px); color: #5b6b85; font-weight: 700; letter-spacing: .04em; }
+.gbadge { position: absolute; left: 8px; bottom: 8px; font-size: 11px; padding: 1px 8px; border-radius: 99px; background: rgba(255,255,255,.92); border: 1px solid #000; }
+.gtile figcaption { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; font-size: 13px; border-top: 1px solid #000; }
+.gtile figcaption b { font-size: 14px; }
+dialog.lightbox { width: min(980px, calc(100% - 24px)); max-width: none; }
+dialog.lightbox > .lbmedia, dialog.lightbox > .lbthumbs, dialog.lightbox > p, dialog.lightbox > #lbInfo { margin-left: 18px; margin-right: 18px; }
+dialog.lightbox > .lbmedia { margin-top: 18px; }
+.lbmedia { position: relative; aspect-ratio: 16 / 10; background: #0d1626; border: 1px solid #000; border-radius: 8px; overflow: hidden; }
+.lbmedia img, .lbmedia iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; object-fit: contain; }
+.lbthumbs { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.lbthumbs button { width: 92px; height: 62px; padding: 0; border: 1px solid #000; border-radius: 6px; overflow: hidden; background: var(--blue-tint); cursor: pointer; font: inherit; font-size: 12px; }
+.lbthumbs button.on { outline: 3px solid var(--blue); }
+.lbthumbs img { width: 100%; height: 100%; object-fit: cover; display: block; }
+#parcelTable tr.hl td { background: #fff3c4 !important; box-shadow: inset 0 2px 0 #eda100, inset 0 -2px 0 #eda100; }

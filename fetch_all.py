@@ -20,6 +20,9 @@ from registry import COUNTIES
 import parcel_geo
 import prices_metro as PM
 import results_outer as RO
+import photos_metro
+import photos_outer
+import streetview
 
 HERE = Path(__file__).resolve().parent
 DATA = HERE / "data"
@@ -28,6 +31,14 @@ CACHE = DATA / "geocache.json"
 PCACHE = DATA / "pricecache.json"
 GCACHE = DATA / "parcelgeo.json"
 ACACHE = DATA / "areacache.json"
+ZCACHE = DATA / "zipcache.json"
+SVCACHE = DATA / "svcache.json"
+PHOTOS = DATA / "photos"
+PH_METRO, PH_OUTER = PHOTOS / "metro_cache.json", PHOTOS / "outer_cache.json"
+try:
+    AUCTION_INFO = json.loads((HERE / "auction_info.json").read_text())
+except Exception:
+    AUCTION_INFO = {}
 if not (HERE / "region.json").exists():
     import build_region
     build_region.main()
@@ -145,6 +156,142 @@ def fill_areas(auctions, acache):
     return n
 
 
+UP = {"NE", "NW", "SE", "SW", "N", "S", "E", "W", "US", "GA", "II", "III", "IV", "PO", "LLC"}
+
+
+def tc(s):
+    """Title case for a street or city written in capitals (keeps NE/SW style directions, fixes Mc names)."""
+    out = []
+    for w in str(s or "").split():
+        u = w.upper().strip(".,")
+        if u in UP:
+            out.append(w.upper())
+        elif re.match(r"^\d+(ST|ND|RD|TH)$", u):
+            out.append(w.lower())
+        elif re.match(r"^MC[A-Z]{2,}", u):
+            out.append("Mc" + w[2:].capitalize())
+        else:
+            out.append(w if (w != w.upper() and w != w.lower()) else w.capitalize())
+    return " ".join(out)
+
+
+NOT_STREET = re.compile(r"\b(LL|LAND LOTS?|DIST|DISTRICT|LOTS?|LT|AC|ACRES?|BLK|BLOCK|TRACT|PB|SEC|SECTION|UNIT PH|SUBD?|S/D|PHASE)\b\.?\s*[#\d&]|\d+(\.\d+)?\s*AC\b|@|/", re.I)
+
+
+def full_address(p, g):
+    """Mailing-style address: street, city, GA ZIP. Returns (text, numbered) or (None, False) for legal descriptions."""
+    street = re.sub(r"\*.*$", "", (p.get("address") or "").split(",")[0]).strip()
+    if not street or len(street) > 60 or NOT_STREET.search(street):
+        return None, False
+    numbered = bool(re.match(r"^[1-9]\d*[A-Z]?\s+\S+", street))
+    m = re.match(r"^(.*?)[\s,]+GA\.?[\s,]+(\d{5})(-\d{4})?$", street, re.I)
+    if m:  # the county already wrote city, state and ZIP after the street
+        return tc(re.sub(r"^0+\s+", "", m.group(1))) + ", GA " + m.group(2), numbered
+    street = re.sub(r"^0+\s+", "", street)
+    if not re.search(r"[A-Za-z]{2,}", street):
+        return None, False
+    city, zp = None, p.get("zip")
+    if g and g.get("matched"):
+        parts = [x.strip() for x in g["matched"].split(",")]
+        if len(parts) >= 4:
+            city, zp = parts[1], parts[3] or zp
+    if not city and p.get("area"):
+        city = re.sub(r"\s*\(unincorporated\)", "", p["area"])
+    text = tc(street) + (", " + FIX.get(tc(city), tc(city)) if city else "") + ", GA" + (" " + zp if zp else "")
+    return text, numbered
+
+
+def _zcta(lat, lon):
+    u = ("https://geocoding.geo.census.gov/geocoder/geographies/coordinates?x=%s&y=%s&benchmark=Public_AR_Current&vintage=Current_Current"
+         "&layers=2020%%20Census%%20ZIP%%20Code%%20Tabulation%%20Areas&format=json" % (lon, lat))
+    for _ in range(2):
+        try:
+            req = urllib.request.Request(u, headers={"User-Agent": "Mozilla/5.0"})
+            g = json.loads(urllib.request.urlopen(req, timeout=30).read())["result"]["geographies"]
+            z = next(iter(g.values()), [])
+            return (z[0].get("ZCTA5") or z[0].get("NAME", "").replace("ZCTA5 ", "")) if z else ""
+        except Exception:
+            time.sleep(1)
+    return None
+
+
+def fill_zips(auctions, zcache, geo_of):
+    """ZIP code for located parcels that did not get one from the address match."""
+    from concurrent.futures import ThreadPoolExecutor
+    need = {}
+    for a in auctions:
+        for p in a["parcels"]:
+            g = geo_of(p)
+            if g and g.get("matched") and g["matched"].count(",") >= 3:
+                p["zip"] = g["matched"].split(",")[3].strip()
+            elif p.get("lat"):
+                need.setdefault(f"{p['lat']:.3f},{p['lon']:.3f}", (p["lat"], p["lon"]))
+    todo = [(k, v) for k, v in need.items() if k not in zcache]
+    if todo:
+        with ThreadPoolExecutor(6) as ex:
+            for (k, _), r in zip(todo, ex.map(lambda kv: _zcta(*kv[1]), todo)):
+                if r is not None:
+                    zcache[k] = r
+    for a in auctions:
+        for p in a["parcels"]:
+            if not p.get("zip") and p.get("lat"):
+                z = zcache.get(f"{p['lat']:.3f},{p['lon']:.3f}")
+                if z:
+                    p["zip"] = z
+
+
+def extras(s, auctions, C):
+    """Building details, street point for Street View, and photos, per distinct parcel."""
+    uniq = {}
+    for a in auctions:
+        for p in a["parcels"]:
+            uniq.setdefault(p["parcel"], p)
+    plist = list(uniq.values())
+    det, sv, ph = {}, {}, {}
+    try:
+        det = photos_metro.details(s, plist, C["metro"])
+    except Exception as e:
+        print("  building details failed:", type(e).__name__, e)
+    try:
+        sv = streetview.points(s, plist, C["sv"])
+    except Exception as e:
+        print("  street points failed:", type(e).__name__, e)
+    for name, fn, cache in (("assessor", photos_metro.find, C["metro"]), ("survey", photos_outer.find, C["outer"])):
+        try:
+            got = fn(s, plist, cache)
+        except Exception as e:
+            got = {}
+            print(f"  {name} photos failed:", type(e).__name__, e)
+        for pid, lst in got.items():
+            for x in lst:
+                if x.get("src") and (HERE / x["src"]).is_file() and all(x["src"] != y["src"] for y in ph.get(pid, [])):
+                    ph.setdefault(pid, []).append({k: v for k, v in x.items() if v not in (None, "") and k in ("src", "kind", "credit", "date", "page")})
+    nph = 0
+    for a in auctions:
+        for p in a["parcels"]:
+            pid = p["parcel"]
+            d = det.get(pid) or {}
+            for k in ("yearBuilt", "sqft"):
+                if d.get(k) and not p.get(k):
+                    p[k] = d[k]
+                    p["improved"] = True
+            v = sv.get(pid)
+            if v:
+                p["sv"] = [v["lat"], v["lon"], v.get("heading")]
+            elif "sv" in p:
+                p.pop("sv")
+            if ph.get(pid):
+                p["photos"] = ph[pid][:4]
+                nph += 1
+            elif "photos" in p:
+                p.pop("photos")
+    print(f"  street points {len(sv)}, parcels with photos {len(ph)}, building details {len(det)}")
+    for k, f in (("metro", PH_METRO), ("outer", PH_OUTER)):
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(json.dumps(C[k], separators=(",", ":")))
+    SVCACHE.write_text(json.dumps(C["sv"], separators=(",", ":")))
+
+
 def load(path):
     return json.loads(path.read_text()) if path.exists() else {}
 
@@ -206,7 +353,8 @@ def area_of(p, g):
 
 def main(only=None):
     cache = load(CACHE)
-    pcache, gcache, acache = load(PCACHE), load(GCACHE), load(ACACHE)
+    pcache, gcache, acache, zcache = load(PCACHE), load(GCACHE), load(ACACHE), load(ZCACHE)
+    XC = {"metro": load(PH_METRO), "outer": load(PH_OUTER), "sv": load(SVCACHE)}
     index = []
     for c in COUNTIES:
         s = slug(c["name"])
@@ -294,10 +442,38 @@ def main(only=None):
                             p["area"] = FIX.get(h["city"].title(), h["city"].title())
                         if h.get("address") and not p.get("address"):
                             p["address"] = h["address"]
+                        for k in ("ptype", "ptypeDetail", "improved", "acres", "acresSrc", "sqft", "yearBuilt"):
+                            if h.get(k) is not None:
+                                p[k] = h[k]
+            for a in auctions:
+                for p in a["parcels"]:
+                    if not p.get("ptype"):
+                        blob = " ".join(str(p.get(k) or "") for k in ("parcel", "type", "desc", "address")).upper()
+                        if re.search(r"MH$|MOBILE|MANUFACTURED HOME", str(p.get("parcel", "")).upper() + " " + blob):
+                            p["ptype"], p["ptypeDetail"] = "Mobile Home", "From the sale listing"
+                        elif re.search(r"\bBOAT\b|PERSONAL PROP|\bEQUIPMENT\b", blob):
+                            p["ptype"], p["ptypeDetail"] = "Other", "Personal property (from the sale listing)"
+                        elif re.search(r"VAC(ANT)? ?LOT|\(LOT\)|VACANT", blob):
+                            p["ptype"], p["ptypeDetail"] = "Vacant Land", "From the sale listing"
+                        elif re.search(r"\bHOUSE\b|DWELLING|RESIDEN", blob):
+                            p["ptype"], p["ptypeDetail"] = "Residential", "From the sale listing"
             print(f"  parcel GIS placed {n} records")
             print("  areas from location:", fill_areas(auctions, acache))
             ACACHE.write_text(json.dumps(acache))
+            geo_of = lambda p: (cache.get(f"{fips}|{street_of(p).upper()}") if street_of(p) else None)
+            fill_zips(auctions, zcache, geo_of)
+            ZCACHE.write_text(json.dumps(zcache))
+            for a in auctions:
+                for p in a["parcels"]:
+                    fa, numbered = full_address(p, geo_of(p))
+                    if fa:
+                        p["fullAddress"], p["addrNum"] = fa, numbered
+                    else:
+                        p.pop("fullAddress", None)
+                        p.pop("addrNum", None)
+            extras(s, auctions, XC)
         rec = {k: v for k, v in c.items() if k != "fetch"}
+        rec["auction"] = AUCTION_INFO.get(c["name"])
         rec.update(slug=s, label=c.get("label", c["name"]), fips=fips, milesFromAtlanta=m.get("near"), pctInRadius=m.get("inside"),
                    automated=bool(c.get("fetch")), auctions=auctions, lastChecked=datetime.now(timezone.utc).isoformat(timespec="seconds"))
         if err:

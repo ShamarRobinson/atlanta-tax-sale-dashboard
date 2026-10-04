@@ -75,6 +75,7 @@
       <div class="cinfo" id="cInfo"></div>
       <p class="takeaway" id="cNote"></p>
     </section>
+    <section class="card" id="cAuctionCard"></section>
     <div id="cEmpty" class="card" hidden></div>
     <div id="cBody">
       <section class="kpis" id="cKpis"></section>
@@ -97,8 +98,9 @@
         <p class="muted small" id="mapNote"></p>
       </section>
       <section class="card" id="parcels">
-        <div class="head"><h2>All Parcels</h2><p>Every parcel in the auction picked above. Click a column header to sort, use <b>Columns</b> to show, hide or pivot columns, and <b>Pivot by</b> to summarize. Click a row for details. <b>Parcel Info</b> opens the county assessor's record for that parcel (documented owner, value and sales history) and <b>Parcel Map</b> opens the county's parcel map on it. <b>Prior Auctions</b> counts earlier auctions on file for the same parcel, with the amount it sold for. Sold prices come from county results, excess funds lists, recorded tax deeds and tax sale payment records; an asterisk marks a price worked out as amount owed plus excess funds. "Not published" means the county has not released the outcome.</p>
-          <p class="small muted"><b>Deal Score</b> (0 to 100) is a screening aid, not advice: value 40 (cost against county value, or entry cost when no value is published), property 20 (numbered street address scores highest), location 15 (distance from Atlanta), competition 15 (how far above the amount owed parcels sell), history 10 (earlier auctions for the same parcel). 70 and up Strong, 50 to 69 Good, 35 to 49 Fair, under 35 Weak.</p></div>
+        <div class="head"><h2>All Parcels</h2><p>Every parcel in the auction picked above. Click a column header to sort, use <b>Columns</b> to show, hide or pivot columns, and <b>Pivot by</b> to summarize. Click a row for details. Every address has a <b>Copy</b> button that copies the full address with city, state and ZIP. <b>Google Map</b> opens the street address when the county published one and the parcel's exact location otherwise. <b>Parcel Info</b> opens the county assessor's record for that parcel (documented owner, value and sales history) and <b>Parcel Map</b> opens the county's parcel map on it. <b>Prior Auctions</b> counts earlier auctions on file for the same parcel, with the amount it sold for. Sold prices come from county results, excess funds lists, recorded tax deeds and tax sale payment records; an asterisk marks a price worked out as amount owed plus excess funds. "Not published" means the county has not released the outcome.</p>
+          <p class="small muted"><b>Property Type</b>, <b>Lot Size</b>, <b>Home Sq Ft</b> and <b>Home Age</b> come from each county's public parcel records. A small m after the lot size means it was measured from the parcel map because the county lists no acreage. Counties that do not publish a field leave it blank.</p>
+          <p class="small muted"><b>Deal Score</b> (0 to 100) is a screening aid, not advice: value 40 (cost against county value, or entry cost when no value is published), property 20 (property type from county records; residential with a building scores highest), location 15 (distance from Atlanta), competition 15 (how far above the amount owed parcels sell), history 10 (earlier auctions for the same parcel). 70 and up Strong, 50 to 69 Good, 35 to 49 Fair, under 35 Weak.</p></div>
         <div class="filters gridbar">
           <input id="fSearch" type="search" placeholder="Search parcel, owner, address or buyer">
           <label class="inline">Pivot by <select id="pivotBy"></select></label>
@@ -109,7 +111,22 @@
         <div class="tablewrap tall"><table class="data sortable" id="parcelTable"></table></div>
         <p class="muted small" id="tableNote"></p>
       </section>
+      <section class="card" id="gallery">
+        <div class="head"><h2>Parcel Photo Gallery</h2><p>One tile per parcel in the table above. Stored photos come first: county assessor photos and Georgia historic survey photos of the house or lot. Where no photo is published, the tile shows a live Google Street View from the nearest public road, turned to face the lot. Parcels with neither show <b>Image N/A</b>. Maps and aerial images are never used as photos. Click a tile to enlarge it and see the details.</p></div>
+        <div class="filters gbar"><label class="inline">Show <select id="gFilter"></select></label><span class="pager"><button type="button" id="gPrev">Previous</button><span id="gPage" class="muted small"></span><button type="button" id="gNext">Next</button></span></div>
+        <div class="ggrid" id="gGrid"></div>
+        <p class="muted small" id="gNote"></p>
+      </section>
     </div>
+  </div>
+
+  <!-- COUNTIES WITH NO PARCEL INFO -->
+  <div id="viewNone" hidden>
+    <section class="card">
+      <div class="head"><h2>Counties With No Parcel Info</h2><p id="noneIntro"></p></div>
+      <div class="jump" id="noneJump"></div>
+    </section>
+    <div id="noneList"></div>
   </div>
 
   <footer class="foot muted small">
@@ -119,6 +136,7 @@
   </footer>
 </main>
 
+<dialog id="lightbox" class="detail lightbox"><div id="lbMedia" class="lbmedia"></div><div id="lbThumbs" class="lbthumbs"></div><p id="lbCredit" class="small muted"></p><div id="lbInfo"></div><form method="dialog"><button class="closebtn" aria-label="Close">Close</button></form></dialog>
 <dialog id="detail" class="detail"><div id="detailBody"></div><form method="dialog"><button class="closebtn" aria-label="Close">Close</button></form></dialog>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
