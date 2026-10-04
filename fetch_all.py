@@ -11,6 +11,7 @@ import re
 import sys
 import time
 import traceback
+import urllib.parse
 import urllib.request
 import uuid
 from datetime import datetime, timezone
@@ -175,30 +176,307 @@ def tc(s):
     return " ".join(out)
 
 
-NOT_STREET = re.compile(r"\b(LL|LAND LOTS?|DIST|DISTRICT|LOTS?|LT|AC|ACRES?|BLK|BLOCK|TRACT|PB|SEC|SECTION|UNIT PH|SUBD?|S/D|PHASE)\b\.?\s*[#\d&]|\d+(\.\d+)?\s*AC\b|@|/", re.I)
+NOT_STREET = re.compile(r"\b(LL|LLS|LAND LOTS?|DIST|DISTRICT|LOTS?|LT|LTS|AC|ACRES?|BLK|BLOCK|TRACT|PB|SEC|SECT|SECTION|UNIT PH|SUBD?|S/D|PHASE)\b\.?\s*[#\d&]"
+                        r"|\b(DIST|LLS?|LTS?|BLK)\d|\d+(\.\d+)?\s*AC\b|@|/", re.I)
+STYPES = ("RD|ROAD|ST|STREET|AVE|AVENUE|AV|DR|DRIVE|LN|LANE|CT|COURT|CIR|CIRCLE|WAY|TRL|TRAIL|PL|PLACE|BLVD|BOULEVARD|PKWY|PARKWAY|HWY|HIGHWAY|TER|TERR|TERRACE"
+          "|PT|POINT|RUN|PASS|PATH|XING|CROSSING|LOOP|ROW|WALK|CV|COVE|SQ|SQUARE|RDG|RIDGE|BND|BEND|TRCE|TRACE|CHASE|CONNECTOR|EXT|LANDING|HOLLOW")
+NUMBERED = re.compile(r"^[1-9]\d*[A-Z]?\s+\S+")
+try:
+    _CZ = json.loads((HERE / "county_zips.json").read_text())
+except Exception:
+    _CZ = {}
+ZIPS, ZIPCITY = _CZ.get("zips", {}), _CZ.get("city", {})
+
+
+def split_addr(raw):
+    """(street, city, zip, legal) from the county's own address text. `legal` marks land lot / lot number / intersection
+    wording that is not a plain street address."""
+    s = re.sub(r"\s+", " ", re.sub(r"\*.*$", "", str(raw or ""))).strip(" ,")
+    if not s:
+        return None, None, None, False
+    city = zp = None
+    m = re.match(r"^(.*?)[\s,]+GA\.?[\s,]*(\d{5})(?:-\d{4})?$", s, re.I)
+    if m:   # the county wrote "... CITY GA 30125" after the street
+        s, zp = m.group(1).strip(" ,"), m.group(2)
+    else:
+        m = re.match(r"^(.*\S)\s*,\s*GA\.?$", s, re.I)
+        if m:
+            s = m.group(1).strip(" ,")
+    parts = [x.strip() for x in s.split(",") if x.strip()]
+    if len(parts) >= 2 and re.match(r"^[A-Za-z .'-]{2,30}$", parts[-1]) and parts[-1].upper() not in ("GA", "REAR", "OFF"):
+        city, s = parts[-1], ", ".join(parts[:-1])
+    elif zp:    # no comma before the city: split after the street type word
+        m = re.match(r"^(\d.*\b(?:%s)\b\.?(?:\s+(?:N|S|E|W|NE|NW|SE|SW))?)\s+([A-Za-z][A-Za-z .'-]{2,29})$" % STYPES, s, re.I)
+        if m:
+            s, city = m.group(1), m.group(2)
+    if city:
+        city = HENRY.get(city.upper(), city)
+    legal = bool(NOT_STREET.search(s)) or len(s) > 60 or not re.search(r"[A-Za-z]{2,}", s)
+    return s, city, zp, legal
+
+
+def city_zip(p, city=None, zp=None):
+    """(city, zip, ", City, GA 30000") for a parcel: the city named with the address, else the incorporated place, else the
+    postal city of the ZIP code, else the census county division."""
+    zp = zp or p.get("zip")
+    area = p.get("area") or ""
+    if not city and area and "(unincorporated)" not in area:
+        city = area
+    if not city and zp and ZIPCITY.get(zp):
+        city = ZIPCITY[zp]
+    if not city and area:
+        city = re.sub(r"\s*\(unincorporated\)", "", area)
+    if city:
+        city = FIX.get(tc(city), tc(city))
+    return city, zp, (", " + city if city else "") + ", GA" + (" " + zp if zp else "")
 
 
 def full_address(p, g):
-    """Mailing-style address: street, city, GA ZIP. Returns (text, numbered) or (None, False) for legal descriptions."""
-    street = re.sub(r"\*.*$", "", (p.get("address") or "").split(",")[0]).strip()
-    if not street or len(street) > 60 or NOT_STREET.search(street):
-        return None, False
-    numbered = bool(re.match(r"^[1-9]\d*[A-Z]?\s+\S+", street))
-    m = re.match(r"^(.*?)[\s,]+GA\.?[\s,]+(\d{5})(-\d{4})?$", street, re.I)
-    if m:  # the county already wrote city, state and ZIP after the street
-        return tc(re.sub(r"^0+\s+", "", m.group(1))) + ", GA " + m.group(2), numbered
-    street = re.sub(r"^0+\s+", "", street)
-    if not re.search(r"[A-Za-z]{2,}", street):
-        return None, False
-    city, zp = None, p.get("zip")
+    """Address with city, state and ZIP: "Street, City, GA 30000". Returns (text, numbered). Land lot wording and other
+    text that is not a street address is kept as written and gets the city and ZIP added when they are known
+    (numbered is False for those, so map links use the parcel's coordinates)."""
+    st, city, zp, legal = split_addr(p.get("address"))
+    if not st or re.search(r"\b(?!GA\b)[A-Z]{2}\.?,?\s+\d{5}(-\d{4})?$", st):
+        return None, False      # nothing usable, or a mailing address in another state
     if g and g.get("matched"):
         parts = [x.strip() for x in g["matched"].split(",")]
         if len(parts) >= 4:
-            city, zp = parts[1], parts[3] or zp
-    if not city and p.get("area"):
-        city = re.sub(r"\s*\(unincorporated\)", "", p["area"])
-    text = tc(street) + (", " + FIX.get(tc(city), tc(city)) if city else "") + ", GA" + (" " + zp if zp else "")
-    return text, numbered
+            city, zp = parts[1] or city, parts[3] or zp
+    city, zp, tail = city_zip(p, city, zp)
+    if legal:
+        if not (city or zp):
+            return None, False
+        return (tc(st) if NUMBERED.match(st) and st == st.upper() else st) + tail, False
+    street = re.sub(r"^0+\s+", "", st)
+    if not re.search(r"[A-Za-z]{2,}", street):
+        return None, False
+    return tc(street) + tail, bool(NUMBERED.match(st))
+
+
+def geocode_rows(rows):
+    """Census batch geocoder with a city and / or ZIP per row. rows: [(id, street, city, zip)].
+    Returns {id: (match type, matched address, lat, lon, county fips) or None}; ids of a failed batch are left out."""
+    out = {}
+    for i in range(0, len(rows), 1000):
+        chunk = rows[i:i + 1000]
+        buf = io.StringIO()
+        w = csv.writer(buf)
+        for rid, street, city, zp in chunk:
+            w.writerow([rid, street, city or "", "GA", zp or ""])
+        boundary = uuid.uuid4().hex
+        body = (f"--{boundary}\r\nContent-Disposition: form-data; name=\"benchmark\"\r\n\r\nPublic_AR_Current\r\n"
+                f"--{boundary}\r\nContent-Disposition: form-data; name=\"vintage\"\r\n\r\nCurrent_Current\r\n"
+                f"--{boundary}\r\nContent-Disposition: form-data; name=\"addressFile\"; filename=\"a.csv\"\r\nContent-Type: text/csv\r\n\r\n").encode() + buf.getvalue().encode() + f"\r\n--{boundary}--\r\n".encode()
+        req = urllib.request.Request("https://geocoding.geo.census.gov/geocoder/geographies/addressbatch", data=body,
+                                     headers={"Content-Type": f"multipart/form-data; boundary={boundary}", "User-Agent": "Mozilla/5.0"})
+        txt = None
+        for _ in range(2):
+            try:
+                txt = urllib.request.urlopen(req, timeout=300).read().decode("utf-8", "replace")
+                break
+            except Exception as e:
+                print("  geocode batch failed:", type(e).__name__)
+                time.sleep(3)
+        if txt is None:
+            continue
+        for r in csv.reader(io.StringIO(txt)):
+            if len(r) >= 10 and r[2] == "Match":
+                lon, lat = map(float, r[5].split(","))
+                out[r[0]] = (r[3], r[4], round(lat, 6), round(lon, 6), (r[8] or "") + (r[9] or ""))
+            elif r:
+                out[r[0]] = None
+        time.sleep(1)
+    return out
+
+
+def zkey(fips, street):
+    return f"z|{fips}|{street.upper()}"
+
+
+def locate_addresses(auctions, fips, cache):
+    """Numbered street addresses the parcel map could not place: ask the Census geocoder with the city / ZIP the county
+    wrote, else with every ZIP code of the county, and keep a match only when it is in this county, the street name is
+    the same and there is one such place. Returns how many parcels were placed."""
+    need = {}
+    for a in auctions:
+        for p in a["parcels"]:
+            if p.get("lat"):
+                continue
+            st, city, zp, legal = split_addr(p.get("address"))
+            if legal or not st or not NUMBERED.match(st):
+                continue
+            if not city and p.get("area") and "(unincorporated)" not in p["area"]:
+                city = p["area"]
+            need.setdefault(st.upper(), (st, city, zp))
+    todo = [k for k in need if zkey(fips, k) not in cache]
+    rows, ids = [], {}
+    for n, k in enumerate(todo):
+        st, city, zp = need[k]
+        cands = ([(city, zp)] if (city or zp) else []) + [(None, z) for z in ZIPS.get(fips, []) if z != zp]
+        ids[k] = [f"{n}#{i}" for i in range(len(cands))]
+        rows += [(f"{n}#{i}", st, c, z) for i, (c, z) in enumerate(cands)]
+    if rows:
+        print(f"  geocoding {len(todo)} unplaced addresses against the county's ZIP codes ({len(rows)} tries)")
+        res = geocode_rows(rows)
+        want = _core
+        for k in todo:
+            if any(i not in res for i in ids[k]):
+                continue        # a batch failed: try again next run
+            ok = [res[i] for i in ids[k] if res[i] and res[i][4] == fips and want(res[i][1]) == want(k)]
+            same = [m for m in ok if _full_words(m[1]) == _full_words(k)]
+            ok = same or ok     # "45 HOLLY CT" beats "45 HOLLY RD" when the county wrote CT
+            first = res[ids[k][0]] if (need[k][1] or need[k][2]) else None
+            if first in ok:
+                ok = [first]    # the place the county itself named
+            spots = {(m[2], m[3]) for m in ok}
+            hit = ok[0] if len(spots) == 1 else None
+            cache[zkey(fips, k)] = {"lat": hit[2], "lon": hit[3], "matched": hit[1], "fips": fips} if hit else None
+    n = 0
+    for a in auctions:
+        for p in a["parcels"]:
+            if p.get("lat"):
+                continue
+            st, city, zp, legal = split_addr(p.get("address"))
+            g = cache.get(zkey(fips, st)) if st and not legal else None
+            if g:
+                p["lat"], p["lon"], p["geo"] = g["lat"], g["lon"], "address"
+                n += 1
+    return n
+
+
+def _core(address):
+    """Street name words without house number, type and direction; route prefixes (US, State Rte, GA) are ignored too,
+    so "371 W 78 HWY" and "371 US HWY 78" compare equal."""
+    return [x for x in streetview._street_words(address) if x not in ("US", "U", "STATE", "RTE", "ROUTE", "GA", "SR")]
+
+
+def _full_words(address):
+    """House number, direction, name and street type of the first address line, in TIGER's abbreviations."""
+    a = str(address or "").split(",")[0].upper()
+    return [streetview.SUFFIX.get(x, {"TERR": "TER", "AV": "AVE", "PKY": "PKWY"}.get(x, x)) for x in re.findall(r"[A-Z0-9]+", a)]
+
+
+def _inside(lon, lat, geom):
+    """Point in a GeoJSON Polygon / MultiPolygon (outer rings only; good enough for a county)."""
+    polys = geom["coordinates"] if geom.get("type") == "MultiPolygon" else [geom.get("coordinates", [])]
+    for poly in polys:
+        ring, hit = (poly[0] if poly else []), False
+        for (x1, y1), (x2, y2) in zip(ring, ring[1:] + ring[:1]):
+            if (y1 > lat) != (y2 > lat) and lon < (x2 - x1) * (lat - y1) / (y2 - y1) + x1:
+                hit = not hit
+        if hit:
+            return True
+    return False
+
+
+def _bbox(geom):
+    polys = geom["coordinates"] if geom.get("type") == "MultiPolygon" else [geom.get("coordinates", [])]
+    xs = [x for poly in polys for x, y in poly[0]]
+    ys = [y for poly in polys for x, y in poly[0]]
+    return min(xs), min(ys), max(xs), max(ys)
+
+
+def _road_place(street, geom):
+    """City and ZIP of a named road inside the county, when every stretch of it lies in one ZIP code (and one city).
+    Returns {"zip":..., "city":...} (keys only when unambiguous), {} when the road is not found, None on a network error."""
+    core = streetview._street_words("1 " + street)
+    if not core:
+        return {}
+    word = max(core, key=len)
+    if len(word) < 3:
+        return {}
+    full = _full_words("1 " + street)[1:]
+    x1, y1, x2, y2 = _bbox(geom)
+    pts = []
+    try:
+        for layer in streetview.LAYERS:
+            q = urllib.parse.urlencode({"where": "UPPER(NAME) LIKE '%%%s%%'" % word.replace("'", "''"), "geometry": f"{x1},{y1},{x2},{y2}",
+                                        "geometryType": "esriGeometryEnvelope", "inSR": 4326, "outSR": 4326, "spatialRel": "esriSpatialRelIntersects",
+                                        "outFields": "NAME", "returnGeometry": "true", "f": "json"})
+            req = urllib.request.Request(streetview.TIGER % layer + "?" + q, headers={"User-Agent": streetview.UA})
+            d = json.loads(urllib.request.urlopen(req, timeout=40).read())
+            if "error" in d:
+                return None
+            for f in d.get("features", []):
+                name = (f.get("attributes") or {}).get("NAME") or ""
+                if streetview._words(name) != core:
+                    continue
+                exact = _full_words("1 " + name)[1:] == full
+                for path in (f.get("geometry") or {}).get("paths", []):
+                    lon, lat = path[len(path) // 2]
+                    if _inside(lon, lat, geom):
+                        pts.append((exact, lat, lon))
+    except Exception:
+        return None
+    if any(e for e, _, _ in pts):
+        pts = [t for t in pts if t[0]]
+    if not pts:
+        return {}
+    step = max(1, len(pts) // 6)
+    zips, cities = set(), set()
+    for _, lat, lon in pts[::step][:8]:
+        z, c = _zcta(lat, lon), _place(lat, lon)
+        if z is None or c is None:
+            return None
+        zips.add(z)
+        cities.add(c)
+    out = {}
+    if len(zips) == 1 and "" not in zips:
+        out["zip"] = zips.pop()
+    if len(cities) == 1 and "" not in cities:
+        out["city"] = cities.pop()
+    return out
+
+
+def road_places(auctions, name, fips, cache):
+    """City and ZIP for parcels that still have no location but name a street: taken from the road itself when the whole
+    road lies in one ZIP code. No map point is set (the spot along the road is unknown)."""
+    geom = (META.get(name) or {}).get("geom")
+    if not geom:
+        return 0
+    from concurrent.futures import ThreadPoolExecutor
+    need = {}
+    for a in auctions:
+        for p in a["parcels"]:
+            if p.get("lat") or (p.get("zip") and p.get("area")):
+                continue
+            st, city, zp, legal = split_addr(p.get("address"))
+            if legal or not st:
+                continue
+            nm = re.sub(r"^\d+[A-Z]?\s+", "", st.upper()).strip()
+            if nm:
+                need.setdefault(nm, None)
+    todo = [k for k in need if f"r|{fips}|{k}" not in cache]
+    if todo:
+        with ThreadPoolExecutor(4) as ex:
+            for k, r in zip(todo, ex.map(lambda k: _road_place(k, geom), todo)):
+                if r is not None:
+                    cache[f"r|{fips}|{k}"] = r
+    n = 0
+    for a in auctions:
+        for p in a["parcels"]:
+            if p.get("lat") or (p.get("zip") and p.get("area")):
+                continue
+            st, city, zp, legal = split_addr(p.get("address"))
+            if legal or not st:
+                continue
+            r = cache.get(f"r|{fips}|" + re.sub(r"^\d+[A-Z]?\s+", "", st.upper()).strip()) or {}
+            if r.get("zip") and not p.get("zip"):
+                p["zip"] = r["zip"]
+                n += 1
+            if r.get("city") and not p.get("area"):
+                p["area"] = FIX.get(r["city"], r["city"])
+    return n
+
+
+def geo_lookup(cache, fips, p):
+    """The geocoder's answer for a parcel's street address, from either pass."""
+    st = street_of(p)
+    g = cache.get(f"{fips}|{st.upper()}") if st else None
+    if not g:
+        s2 = split_addr(p.get("address"))[0]
+        g = cache.get(zkey(fips, s2)) if s2 else None
+    return g
 
 
 def _zcta(lat, lon):
@@ -278,6 +556,8 @@ def extras(s, auctions, C):
             v = sv.get(pid)
             if v:
                 p["sv"] = [v["lat"], v["lon"], v.get("heading")]
+                if v.get("road"):
+                    p["road"] = tc(v["road"]) if v["road"] == v["road"].upper() else v["road"]
             elif "sv" in p:
                 p.pop("sv")
             if ph.get(pid):
@@ -397,6 +677,18 @@ def main(only=None):
         auctions = fold(auctions)
         m = META.get(c["name"], {})
         fips = m.get("fips", "")
+        for a in auctions:
+            for p in a["parcels"]:
+                if p.get("mail") and p.get("address") == p["mail"]:
+                    p.pop("address")        # decided again below, after the parcel map had its say
+                p.pop("addrNote", None)
+                ad = p.get("address") or ""
+                ad2 = re.sub(r"^\d+(\.\d+)?\s*ACRES?\s*(?=\d)", "", ad)      # "29 ACRES5544 BRITTON DR"
+                ym, yrs = re.match(r"^(20[012]\d)\s+(\D.*)$", ad2), re.findall(r"20\d\d", str(p.get("years") or ""))
+                if s == "carroll" and ym and yrs and ym.group(1) == yrs[-1]:
+                    ad2 = ym.group(2)     # the last tax year ran into the address column of the sale notice
+                if ad2 != ad:
+                    p["address"] = ad2
         # geocode street addresses once, cached by county + street
         todo = []
         for a in auctions:
@@ -458,11 +750,41 @@ def main(only=None):
                         elif re.search(r"\bHOUSE\b|DWELLING|RESIDEN", blob):
                             p["ptype"], p["ptypeDetail"] = "Residential", "From the sale listing"
             print(f"  parcel GIS placed {n} records")
+            local = set(ZIPS.get(fips, []))
+            for a in auctions:
+                for p in a["parcels"]:
+                    # an owner's mailing address stands in for the property address only inside the county, and says so
+                    if p.get("mail") and not p.get("address"):
+                        zp = split_addr(p["mail"])[2]
+                        if zp and zp in local and not re.search(r"\bP\.? ?O\.? BOX\b", p["mail"], re.I):
+                            p["address"] = p["mail"]
+                            p["addrNote"] = "Owner's mailing address on the county's list. It may not be the property itself."
+            try:
+                print("  placed by street address:", locate_addresses(auctions, fips, cache))
+            except Exception as e:
+                print("  address placing failed:", type(e).__name__, e)
+            CACHE.write_text(json.dumps(cache))
+            geo_of = lambda p: geo_lookup(cache, fips, p)
+            for a in auctions:
+                for p in a["parcels"]:
+                    st, city, zp, legal = split_addr(p.get("address"))
+                    if zp and local and zp not in local:
+                        continue            # a mailing address outside the county says nothing about the parcel
+                    if zp and not p.get("zip"):
+                        p["zip"] = zp       # the ZIP code the county wrote
+                    if not p.get("area"):
+                        ar = area_of(p, geo_of(p)) or (FIX.get(tc(city), tc(city)) if city else None)
+                        if ar:
+                            p["area"] = ar
             print("  areas from location:", fill_areas(auctions, acache))
             ACACHE.write_text(json.dumps(acache))
-            geo_of = lambda p: (cache.get(f"{fips}|{street_of(p).upper()}") if street_of(p) else None)
             fill_zips(auctions, zcache, geo_of)
             ZCACHE.write_text(json.dumps(zcache))
+            try:
+                print("  city / ZIP from the road name:", road_places(auctions, c["name"], fips, cache))
+            except Exception as e:
+                print("  road name lookup failed:", type(e).__name__, e)
+            CACHE.write_text(json.dumps(cache))
             for a in auctions:
                 for p in a["parcels"]:
                     fa, numbered = full_address(p, geo_of(p))
@@ -472,6 +794,13 @@ def main(only=None):
                         p.pop("fullAddress", None)
                         p.pop("addrNum", None)
             extras(s, auctions, XC)
+            for a in auctions:
+                for p in a["parcels"]:
+                    if not p.get("fullAddress") and not p.get("address") and p.get("lat"):
+                        city, zp, tail = city_zip(p)
+                        if city or zp:      # no address published: the nearest road, city and ZIP of the parcel's map location
+                            p["fullAddress"], p["addrNum"] = ("Near " + p["road"] if p.get("road") else "No street address") + tail, False
+                            p["addrNote"] = "The county publishes no street address for this parcel. The line shows the nearest road, city and ZIP code of its map location."
         rec = {k: v for k, v in c.items() if k != "fetch"}
         rec["auction"] = AUCTION_INFO.get(c["name"])
         rec.update(slug=s, label=c.get("label", c["name"]), fips=fips, milesFromAtlanta=m.get("near"), pctInRadius=m.get("inside"),

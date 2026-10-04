@@ -376,7 +376,8 @@
   /* ---------- addresses, copy buttons, map links ---------- */
   const addrText = (p) => p.fullAddress || p.address || p.desc || "";
   const copyBtn = (t) => t ? ` <button type="button" class="copy" data-copy="${esc(t)}" title="Copy the full address">Copy</button>` : "";
-  const addrHtml = (p) => { const t = addrText(p); return t ? `<span class="addr">${esc(t)}</span>${copyBtn(t)}` : ""; };
+  const addrFlag = (p) => p.addrNote ? `<br><span class="muted small" title="${esc(p.addrNote)}">${/mailing/i.test(p.addrNote) ? "Owner mailing address" : "Nearest road, not a street address"}</span>` : "";
+  const addrHtml = (p) => { const t = addrText(p); return t ? `<span class="addr">${esc(t)}</span>${copyBtn(t)}${addrFlag(p)}` : ""; };
   const gq = (q) => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`;
   // address first (when it has a street number), else the parcel's coordinates, else whatever text there is
   const gmapUrl = (p) => p.fullAddress && p.addrNum ? gq(p.fullAddress) : p.lat ? gq(`${p.lat},${p.lon}`) : p.fullAddress ? gq(p.fullAddress) : p.address ? gq(`${p.address}, ${p.county} County, GA`) : null;

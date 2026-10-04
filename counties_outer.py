@@ -96,8 +96,17 @@ def polk():
             cur["map"] = line.split(":", 1)[1].strip()
         elif cur is not None and line.startswith("EXCESS"):
             cur["excess"] = money(line)
+            # each record: owner line(s) and a land lot line (in either order), then the owner's last known mailing address
             L = cur["lines"]
-            recs.append((d, parcel_rec(cur.get("map", "?"), L[0] if L else None, " ".join(L[2:4]) if len(L) > 2 else None, None, cur.get("sold"), excess=cur["excess"], status="Sold")))
+            mail, head = (L[-2:], L[:-2]) if len(L) >= 3 and re.search(r"\b[A-Z]{2}\.?\s+\d{5}", L[-1]) else ([], L)
+            legal = [x for x in head if re.match(r"(LLS?|LTS?|LOTS?|TR|PT|BLK|DIST|LAND LOT)\b|\d+(ST|ND|RD|TH)\s+(DIST|SECT)|.*\b(DISTRICT|SECT(ION)?|S/D|SURVEY)\b", x, re.I)]
+            owner = " ".join(x for x in head if x not in legal) or None
+            extra = {}
+            if legal:
+                extra["desc"] = " ".join(legal)
+            if mail:
+                extra["mail"] = ", ".join(mail)     # not the property address: fetch_all.py decides whether to show it
+            recs.append((d, parcel_rec(cur.get("map", "?"), owner, None, None, cur.get("sold"), excess=cur["excess"], status="Sold", extra=extra)))
             cur = None
         elif cur is not None and line:
             cur["lines"].append(line)
