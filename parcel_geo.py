@@ -47,7 +47,7 @@ TRIES = 2
 BATCH = 50          # ids per IN query
 LIKE_BATCH = 15     # ids per OR-of-LIKE query
 GA = (30.3, 35.1, -85.7, -80.7)  # lat min, lat max, lon min, lon max
-CACHE_V = 3         # cache entries without "v": CACHE_V are re-queried once
+CACHE_V = 4         # cache entries without "v": CACHE_V are re-queried once
 
 PTYPES = ("Residential", "Commercial", "Industrial", "Agricultural", "Conservation / Timber",
           "Exempt / Government", "Utility", "Mobile Home", "Vacant Land", "Other")
@@ -595,6 +595,15 @@ def pool(bbox, like=like_tokens, keyf=key):
               name="statewide pool (third party) " + POOL + str(i)) for i in (2, 1, 0)]
 
 
+POOL26 = "https://services8.arcgis.com/kePfB0a6AiElbP14/arcgis/rest/services/ga_final_parcel_district_2_15_2026/FeatureServer/"
+
+
+def pool26(layers, bbox, like=like_tokens, keyf=key):
+    """The same publisher's 2026 statewide layer (split into regional sub-layers); it holds parcels the 2025 one lacks."""
+    return [S(POOL26 + str(i), "apn", like=like, addr="prop_address", city="city", keyf=keyf, bbox=bbox,
+              ex={"acres": [("acres", "map")]}, name="statewide 2026 (third party) " + POOL26 + str(i)) for i in layers]
+
+
 SOURCES = {
     "fulton": [S("https://gismaps.fultoncountyga.gov/arcgispub2/rest/services/PropertyMapViewer/PropertyMapViewer/MapServer/11",
                  "ParcelID", v_fulton, addr="Address", ptype=p_fulton, pf="LUCode,ClassCode,ImprAppr", ex={"acres": ["LandAcres"]}),
@@ -661,10 +670,14 @@ SOURCES = {
                  "Parcel_No", addr=["house_no", "stdirect", "street_nam", "sttype"], keyf=k_nozero,
                  ptype=p_wingap("digclass", ["fmvres", "fmvcom", "fmvacc"]), pf="digclass,fmvres,fmvcom,fmvacc",
                  ex={"acres": ["totalacres", "Deed_Acres", ("Draw_Acres", "map")]})]
-              + pool((-83.95, 33.6, -83.45, 34.0), keyf=k_nozero),
-    "carroll": pool((-85.36, 33.38, -84.78, 33.82), like=like_carroll, keyf=k_carroll),
-    "heard": pool((-85.32, 33.12, -84.83, 33.47)),
-    "pickens": pool((-84.68, 34.36, -84.23, 34.6)),
+              + pool26([8, 9, 12], (-83.95, 33.6, -83.45, 34.0), keyf=k_nozero) + pool((-83.95, 33.6, -83.45, 34.0), keyf=k_nozero),
+    # Carroll County's own tax parcel layer (county GIS on ArcGIS Online); the statewide layer stays as a fallback
+    "carroll": [S("https://services1.arcgis.com/T9kPZugHsZ2SNOXt/arcgis/rest/services/COUNTY_PARCEL/FeatureServer/0",
+                  "Parcel_no", like=like_carroll, keyf=k_carroll, addr=["HOUSE_NO", "STDIRECT", "STREET_NAM", "STTYPE"],
+                  ptype=p_class_legal("DIGCLASS", "LEGAL_DESC"), pf="DIGCLASS,LEGAL_DESC", ex={"acres": ["TOTALACRES", "ACRES"]})]
+               + pool((-85.36, 33.38, -84.78, 33.82), like=like_carroll, keyf=k_carroll),
+    "heard": pool26([2], (-85.32, 33.12, -84.83, 33.47)) + pool((-85.32, 33.12, -84.83, 33.47)),
+    "pickens": pool26([10], (-84.68, 34.36, -84.23, 34.6)) + pool((-84.68, 34.36, -84.23, 34.6)),
     "polk": pool((-85.44, 33.85, -84.95, 34.12), like=like_polk),
 }
 

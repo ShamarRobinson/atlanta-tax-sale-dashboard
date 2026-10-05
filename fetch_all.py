@@ -24,6 +24,7 @@ import results_outer as RO
 import photos_metro
 import photos_outer
 import streetview
+import streetview2
 
 HERE = Path(__file__).resolve().parent
 DATA = HERE / "data"
@@ -531,7 +532,7 @@ def extras(s, auctions, C):
     except Exception as e:
         print("  building details failed:", type(e).__name__, e)
     try:
-        sv = streetview.points(s, plist, C["sv"])
+        sv = streetview2.points(s, plist, C["sv"])
     except Exception as e:
         print("  street points failed:", type(e).__name__, e)
     for name, fn, cache in (("assessor", photos_metro.find, C["metro"]), ("survey", photos_outer.find, C["outer"])):
@@ -555,7 +556,7 @@ def extras(s, auctions, C):
                     p["improved"] = True
             v = sv.get(pid)
             if v:
-                p["sv"] = [v["lat"], v["lon"], v.get("heading")]
+                p["sv"] = [v["lat"], v["lon"], v.get("heading"), v.get("m")]   # road point, heading toward the lot, metres to the lot
                 if v.get("road"):
                     p["road"] = tc(v["road"]) if v["road"] == v["road"].upper() else v["road"]
             elif "sv" in p:

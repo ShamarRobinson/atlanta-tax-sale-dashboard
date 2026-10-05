@@ -197,7 +197,8 @@
     const upc = as.map((a, i) => [a, i]).filter(([a]) => a.date >= TODAY && a.kind === "list").sort((x, y) => x[0].date.localeCompare(y[0].date));
     const pick = upc.length ? upc[0][1] : -1;
     const firstRes = as.findIndex((a) => a.kind !== "list");
-    sel.value = CUR && CUR.slug === s ? CUR.v : String(firstRes >= 0 && pick < 0 ? firstRes : pick >= 0 ? pick : 0);
+    // the upcoming sale list when there is one; otherwise everything on file (a single small past list makes a thin page and gallery)
+    sel.value = CUR && CUR.slug === s ? CUR.v : pick >= 0 ? String(pick) : as.length > 1 ? "all" : String(firstRes >= 0 ? firstRes : 0);
     sel.onchange = () => { CUR = { slug: s, v: sel.value }; G.filter = null; charts.forEach((c) => c.destroy()); charts = []; drawCounty(d); };
     CUR = { slug: s, v: sel.value };
     drawCounty(d);
@@ -381,7 +382,16 @@
   const gq = (q) => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`;
   // address first (when it has a street number), else the parcel's coordinates, else whatever text there is
   const gmapUrl = (p) => p.fullAddress && p.addrNum ? gq(p.fullAddress) : p.lat ? gq(`${p.lat},${p.lon}`) : p.fullAddress ? gq(p.fullAddress) : p.address ? gq(`${p.address}, ${p.county} County, GA`) : null;
-  const svUrl = (p) => p.sv ? `https://www.google.com/maps?q=&layer=c&cbll=${p.sv[0]},${p.sv[1]}${p.sv[2] != null ? `&cbp=11,${p.sv[2]},0,0,0` : ""}&source=embed&output=svembed` : null;
+  // Live Street View: Google is handed a spot up to 30 m from the road toward the lot plus a search circle, picks the
+  // nearest outdoor panorama inside it and turns the camera to face that spot (keep in step with streetview2.py)
+  const SV_AIM = 30, SV_R = [100, 300];
+  function svUrl(p) {
+    if (!p.sv) return null;
+    let [la, lo, h, m] = p.sv;
+    if (h != null) { const d = Math.min(SV_AIM, Math.max(8, m || SV_AIM)), r = h * Math.PI / 180, k = Math.cos(la * Math.PI / 180); la += d * Math.cos(r) / 110540; lo += d * Math.sin(r) / (111320 * k); }
+    const rad = Math.round(Math.min(SV_R[1], Math.max(SV_R[0], (m || 0) + 60)));
+    return `https://www.google.com/maps/embed?pb=!6m7!1m6!2m2!1d${la.toFixed(6)}!2d${lo.toFixed(6)}!5f1!6d${rad}!7e1`;
+  }
   function copyText(t, btn) {
     const done = () => { const o = btn.textContent; btn.textContent = "Copied"; btn.classList.add("ok"); setTimeout(() => { btn.textContent = o; btn.classList.remove("ok"); }, 1300); };
     const fallback = () => { const ta = document.createElement("textarea"); ta.value = t; ta.style.position = "fixed"; ta.style.opacity = "0"; (btn.closest("dialog") || document.body).appendChild(ta); ta.select(); try { document.execCommand("copy"); done(); } catch (e) { /* nothing more to try */ } ta.remove(); };
