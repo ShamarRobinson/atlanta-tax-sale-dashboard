@@ -7,6 +7,7 @@ archive even after the county takes the file down. A county that fails to load k
 import csv
 import io
 import json
+import os
 import re
 import sys
 import time
@@ -14,7 +15,7 @@ import traceback
 import urllib.parse
 import urllib.request
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from registry import COUNTIES
@@ -632,7 +633,23 @@ def area_of(p, g):
     return None
 
 
-def main(only=None):
+ROT_EPOCH = date(2026, 1, 5)     # a Monday; weeks are counted from here
+
+
+def groups():
+    """The two fixed halves of the county list: counties in alphabetical order, dealt out alternately, so each half
+    is a mix of large and small counties. Group A is refreshed one week, group B the next."""
+    names = sorted(slug(c["name"]) for c in COUNTIES)
+    return [set(names[0::2]), set(names[1::2])]
+
+
+def group_of_week(day=None):
+    """0 (group A) or 1 (group B) for the week that holds `day` (weeks run Monday to Sunday)."""
+    day = day or datetime.now(timezone.utc).date()
+    return ((day - ROT_EPOCH).days // 7) % 2
+
+
+def main(only=None, run="all"):
     cache = load(CACHE)
     pcache, gcache, acache, zcache = load(PCACHE), load(GCACHE), load(ACACHE), load(ZCACHE)
     XC = {"metro": load(PH_METRO), "outer": load(PH_OUTER), "sv": load(SVCACHE)}
@@ -804,10 +821,15 @@ def main(only=None):
                             p["addrNote"] = "The county publishes no street address for this parcel. The line shows the nearest road, city and ZIP code of its map location."
         rec = {k: v for k, v in c.items() if k != "fetch"}
         rec["auction"] = AUCTION_INFO.get(c["name"])
+        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        ran = not only or s in only        # counties outside this run keep their data and their last check date
         rec.update(slug=s, label=c.get("label", c["name"]), fips=fips, milesFromAtlanta=m.get("near"), pctInRadius=m.get("inside"),
-                   automated=bool(c.get("fetch")), auctions=auctions, lastChecked=datetime.now(timezone.utc).isoformat(timespec="seconds"))
+                   automated=bool(c.get("fetch")), auctions=auctions, lastChecked=now if ran else old.get("lastChecked", now),
+                   group="AB"[0 if s in groups()[0] else 1])
         if err:
             rec["lastError"] = err
+        elif not ran and old.get("lastError"):
+            rec["lastError"] = old["lastError"]
         elif "lastError" in rec:
             rec.pop("lastError")
         if old.get("auctions") != auctions or not old:
@@ -818,11 +840,16 @@ def main(only=None):
         up = sorted([a["date"] for a in auctions if a["date"] >= today])
         last = sorted([a["date"] for a in auctions if a["date"] < today], reverse=True)
         index.append(dict(slug=s, name=c["name"], label=rec["label"], fips=fips, run=c["run"], automated=rec["automated"], milesFromAtlanta=rec["milesFromAtlanta"],
+                          group=rec["group"], lastChecked=rec["lastChecked"],
                           pctInRadius=rec["pctInRadius"], auctions=len(auctions), parcels=sum(len(a["parcels"]) for a in auctions),
                           sold=sum(1 for a in auctions for p in a["parcels"] if p.get("status") == "Sold"),
                           withPrice=sum(1 for a in auctions for p in a["parcels"] if p.get("winningBid")),
                           nextSale=up[0] if up else None, lastSale=last[0] if last else None, page=c["page"], note=c["note"], lastError=rec.get("lastError")))
+    today_d = datetime.now(timezone.utc).date()
+    monday = today_d + timedelta(days=(7 - today_d.weekday()) % 7 or 7)     # the next scheduled (Monday) run
+    ga, gb = groups()
     out = {"generated": datetime.now(timezone.utc).isoformat(timespec="seconds"), "center": REGION["center"], "radiusMiles": REGION["radius_mi"],
+           "rotation": {"thisRun": run, "A": sorted(ga), "B": sorted(gb), "nextGroup": "AB"[group_of_week(monday)], "nextDate": monday.isoformat()},
            "counties": index}
     (DATA / "index.json").write_text(json.dumps(out, separators=(",", ":")))
     geo = {"type": "FeatureCollection", "features": [{"type": "Feature", "properties": {"name": cc["name"], "slug": slug(cc["name"]), "state": cc["state"], "pct": cc["inside"]},
@@ -832,4 +859,15 @@ def main(only=None):
 
 
 if __name__ == "__main__":
-    main(set(sys.argv[1:]) or None)
+    # python fetch_all.py                  every county (also what a push or a manual run does)
+    # python fetch_all.py cobb fulton      only these counties
+    # python fetch_all.py --rotate         this week's half; the weekly schedule on GitHub does this by itself
+    _slugs = {a for a in sys.argv[1:] if not a.startswith("--")}
+    if _slugs:
+        main(_slugs, "selected")
+    elif "--rotate" in sys.argv or os.environ.get("GITHUB_EVENT_NAME") == "schedule":
+        _g = group_of_week()
+        print("weekly rotation: group", "AB"[_g], flush=True)
+        main(groups()[_g], "AB"[_g])
+    else:
+        main(None, "all")

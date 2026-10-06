@@ -40,7 +40,7 @@
     linkPriors();
     INDEX.counties.forEach((c) => { const m = med(ALL.filter((p) => p.slug === c.slug).map((p) => p.multiple)); if (m) CMULT[c.slug] = m; });
     const g = toDate(INDEX.generated);
-    $("freshness").innerHTML = `<span class="dotlive"></span>Checked <b>${g.toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", timeZone: "America/New_York" })} ET</b> &middot; ${INDEX.counties.length} counties &middot; ${ALL.length.toLocaleString()} parcel records &middot; updates weekly`;
+    $("freshness").innerHTML = `<span class="dotlive"></span>Checked <b>${g.toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", timeZone: "America/New_York" })} ET</b> &middot; ${INDEX.counties.length} counties &middot; ${ALL.length.toLocaleString()} parcel records &middot; ${rotNote()}`;
     buildTabs();
     window.addEventListener("hashchange", route);
     route();
@@ -170,6 +170,20 @@
   }
 
   /* ---------- county ---------- */
+  /* ---------- weekly rotation: half of the counties are refreshed one week, the other half the next ---------- */
+  const ROT = () => INDEX.rotation || null;
+  function nextCheck(slug) {
+    const r = ROT(); if (!r || !r.nextDate) return null;
+    const d = new Date(r.nextDate + "T12:00:00"), mine = (r.A || []).includes(slug) ? "A" : "B";
+    if (mine !== r.nextGroup) d.setDate(d.getDate() + 7);
+    return { group: mine, date: d.toISOString().slice(0, 10) };
+  }
+  function rotNote() {
+    const r = ROT(); if (!r) return "updates weekly";
+    const other = r.nextGroup === "A" ? "B" : "A", d2 = new Date(r.nextDate + "T12:00:00"); d2.setDate(d2.getDate() + 7);
+    return `half of the counties are refreshed each week: group ${r.nextGroup} on ${fmtDate(r.nextDate)}, group ${other} on ${fmtDate(d2.toISOString().slice(0, 10))}`;
+  }
+
   function renderCounty(s) {
     if (!CUR || CUR.slug !== s) { G.filter = null; G.pivot = ""; G.sort = "date"; G.dir = -1; $("fSearch").value = ""; }
     const d = C[s], idx = INDEX.counties.find((c) => c.slug === s);
@@ -178,7 +192,8 @@
     const link = (u, t) => u ? `<a href="${esc(u)}" target="_blank" rel="noopener">${t}</a>` : '<span class="muted">Not published</span>';
     $("cInfo").innerHTML = [["Sale schedule", esc(d.schedule)], ["Next sale on file", idx.nextSale ? fmtDate(idx.nextSale, { weekday: "long" }) : "None posted"],
       ["Official tax sale page", link(d.page, "County tax sale page")], ["Excess funds", link(d.excess, "Excess funds information")], ["Parcel lookup", link(d.parcel, "Assessor / parcel search")],
-      ["Last checked", fmtDate(d.lastChecked) + (d.lastError ? ' <span class="muted">(latest check failed; showing saved data)</span>' : "")]].map(([a, b]) => `<div><b>${a}</b>${b}</div>`).join("");
+      ["Last checked", fmtDate(d.lastChecked) + (d.lastError ? ' <span class="muted">(latest check failed; showing saved data)</span>' : "")],
+      ["Next scheduled check", (() => { const n = nextCheck(s); return n ? `${fmtDate(n.date)} <span class="muted">(group ${n.group}, checked every other week)</span>` : "Weekly"; })()]].map(([a, b]) => `<div><b>${a}</b>${b}</div>`).join("");
     $("cNote").innerHTML = esc(d.note);
     $("cAuctionCard").innerHTML = auctionCard(d);
     const sel = $("cAuction");
